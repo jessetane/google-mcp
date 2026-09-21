@@ -54,6 +54,17 @@ test('mcp initialize & tools/list', async () => {
 	const initData = await initRes.json()
 	assert.equal(initData.result.serverInfo.name, 'gdrive-mcp')
 
+	const notifRes = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({
+			jsonrpc: '2.0',
+			method: 'notifications/initialized',
+			params: {}
+		})
+	})
+	assert.equal(notifRes.status, 202)
+
 	const listRes = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },

@@ -61,11 +61,11 @@ async function handleMcp (req, res, token) {
 			data = JSON.stringify(data)
 			return data
 		},
-		send: response => {
-			if (response) {
+		send: data => {
+			if (data) {
 				res.statusCode = 200
 				res.setHeader('content-type', 'application/json; charset=utf-8')
-				res.end(response)
+				res.end(data)
 			} else {
 				res.statusCode = 202
 				res.setHeader('content-type', 'application/json; charset=utf-8')
@@ -81,6 +81,9 @@ async function handleMcp (req, res, token) {
 	}
 	const request = await getBody(req)
 	await rpc.receive(request)
+	if (!res.writableEnded) {
+		rpc.send()
+	}
 }
 
 const server = http.createServer(async (req, res) => {
