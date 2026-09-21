@@ -5,6 +5,7 @@ MCP proxy for Google Drive, Docs and Sheets HTTP APIs.
 Google's web assistant is OK but lacks the power and flexibility of a standalone agent, Claude has Drive but not Sheets, and ChatGPT requires a paid account.  
 
 ## How
+
 * Handles OAuth2 sign-in, exchanges codes for Google tokens, and saves them locally in SQLite (`data.db`).  
 * Issues an internal session token passed via `Authorization: Bearer <token>` to authenticate MCP calls.  
 * Forwards Drive, Sheets, and Docs API requests directly to Google's endpoints, refreshing expired Google tokens on demand.  
@@ -22,11 +23,13 @@ A Google Cloud project with OAuth credentials is required:
 
 ### ChatGPT
 Go to **Plugins** → **New Plugin**:
+
 * Enter `<APP_URL>/mcp`, name, and description.  
 * OAuth is selected by default; complete the Google sign-in prompt when prompted.  
 
 ### Claude Desktop
 Go to **Customize** → **Connectors**:
+
 * Add a new connector with URL `<APP_URL>/mcp`.  
 * OAuth is selected by default; approve the connection.  
 
@@ -58,6 +61,7 @@ GET  /api/health                                # health check
 ```
   
 ## Tools
+
 * `driveApi` Proxy to `https://www.googleapis.com/drive/v3/{path}`  
 * `docsApi` Proxy to `https://docs.googleapis.com/v1/{path}`  
 * `sheetsApi` Proxy to `https://sheets.googleapis.com/v4/{path}`  
