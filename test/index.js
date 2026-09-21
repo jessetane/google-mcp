@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
+import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -184,12 +185,126 @@ test('well-known oauth discovery endpoints', async () => {
 	assert.equal(resResource.status, 200)
 	const resourceData = await resResource.json()
 	assert.ok(Array.isArray(resourceData.authorization_servers))
-
 	const resAuth = await fetch(`http://127.0.0.1:${addr.port}/.well-known/oauth-authorization-server`)
 	assert.equal(resAuth.status, 200)
 	const authData = await resAuth.json()
 	assert.ok(authData.authorization_endpoint.endsWith('/oauth/authorize'))
 	assert.ok(authData.token_endpoint.endsWith('/oauth/token'))
+	assert.deepEqual(authData.code_challenge_methods_supported, ['S256'])
+})
+
+test('oauth pkce flow with S256', async () => {
+	const user = db.users.upsert({ email: 'pkce@example.com', name: 'PKCE User' })
+	const session = db.sessions.create({
+		userId: user.id,
+		accessToken: 'ya29.fake-pkce-token',
+		refreshToken: '1//fake-pkce-refresh'
+	})
+	const addr = server.address()
+	const verifier = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'
+	const challenge = createHash('sha256').update(verifier).digest('base64url')
+	const codeMissing = db.oauthCodes.create({
+		sessionId: session.id,
+		clientRedirectUri: 'https://chatgpt.com/callback',
+		codeChallenge: challenge,
+		codeChallengeMethod: 'S256'
+	})
+	const missingVerifierRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/token`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/x-www-form-urlencoded' },
+		body: new URLSearchParams({
+			code: codeMissing,
+			redirect_uri: 'https://chatgpt.com/callback',
+			grant_type: 'authorization_code'
+		}).toString()
+	})
+	assert.equal(missingVerifierRes.status, 400)
+	const missingData = await missingVerifierRes.json()
+	assert.equal(missingData.error_description, 'Missing code_verifier')
+	const codeWrong = db.oauthCodes.create({
+		sessionId: session.id,
+		clientRedirectUri: 'https://chatgpt.com/callback',
+		codeChallenge: challenge,
+		codeChallengeMethod: 'S256'
+	})
+	const wrongVerifierRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/token`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({
+			code: codeWrong,
+			redirect_uri: 'https://chatgpt.com/callback',
+			code_verifier: 'wrong-verifier-length-must-be-at-least-43-chars-long'
+		})
+	})
+	assert.equal(wrongVerifierRes.status, 400)
+	const wrongData = await wrongVerifierRes.json()
+	assert.equal(wrongData.error_description, 'Invalid code_verifier')
+	const codeSuccess = db.oauthCodes.create({
+		sessionId: session.id,
+		clientRedirectUri: 'https://chatgpt.com/callback',
+		codeChallenge: challenge,
+		codeChallengeMethod: 'S256'
+	})
+	const successRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/token`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({
+			code: codeSuccess,
+			redirect_uri: 'https://chatgpt.com/callback',
+			code_verifier: verifier
+		})
+	})
+	assert.equal(successRes.status, 200)
+	const successData = await successRes.json()
+	assert.equal(successData.access_token, session.token)
+	const shortVerifierRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/token`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({
+			code: db.oauthCodes.create({
+				sessionId: session.id,
+				clientRedirectUri: 'https://chatgpt.com/callback',
+				codeChallenge: challenge,
+				codeChallengeMethod: 'S256'
+			}),
+			redirect_uri: 'https://chatgpt.com/callback',
+			code_verifier: 'short'
+		})
+	})
+	assert.equal(shortVerifierRes.status, 400)
+	const shortData = await shortVerifierRes.json()
+	assert.equal(shortData.error_description, 'Invalid code_verifier')
+})
+
+test('oauth pkce authorize endpoint validation and state propagation', async () => {
+	const addr = server.address()
+	const methodWithoutChallengeRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize?code_challenge_method=S256`)
+	assert.equal(methodWithoutChallengeRes.status, 400)
+	const methodWithoutChallengeData = await methodWithoutChallengeRes.json()
+	assert.equal(methodWithoutChallengeData.error, 'invalid_request')
+	const unsupportedMethodRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize?code_challenge=xyz&code_challenge_method=unsupported`)
+	assert.equal(unsupportedMethodRes.status, 400)
+	const unsupportedMethodData = await unsupportedMethodRes.json()
+	assert.equal(unsupportedMethodData.error, 'invalid_request')
+	const plainMethodRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize?code_challenge=xyz&code_challenge_method=plain`)
+	assert.equal(plainMethodRes.status, 400)
+	const plainMethodData = await plainMethodRes.json()
+	assert.equal(plainMethodData.error, 'invalid_request')
+	const challenge = 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM'
+	const authRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize?redirect_uri=https://example.com/callback&state=test-state&code_challenge=${challenge}&code_challenge_method=S256`, {
+		redirect: 'manual'
+	})
+	assert.equal(authRes.status, 302)
+	const location = authRes.headers.get('location')
+	assert.ok(location)
+	const targetUrl = new URL(location)
+	const stateParam = targetUrl.searchParams.get('state')
+	assert.ok(stateParam)
+	const stateRow = db.oauthStates.consume(stateParam)
+	assert.equal(stateRow.clientRedirectUri, 'https://example.com/callback')
+	assert.equal(stateRow.clientState, 'test-state')
+	assert.equal(stateRow.codeChallenge, challenge)
+	assert.equal(stateRow.codeChallengeMethod, 'S256')
 })
 
 test('cors preflight options request', async () => {

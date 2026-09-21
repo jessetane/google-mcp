@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto'
 import * as db from './db/index.js'
 import { getUserInfo } from './google.js'
 import { getBody } from './util.js'
@@ -25,6 +26,18 @@ function getClientIp (req) {
 	return req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || null
 }
 
+function verifyCodeChallenge (verifier, challenge, method) {
+	if (typeof verifier !== 'string' || typeof challenge !== 'string') return false
+	if (method === 'S256') {
+		const hash = createHash('sha256').update(verifier).digest('base64url')
+		const bufHash = Buffer.from(hash)
+		const bufChallenge = Buffer.from(challenge)
+		if (bufHash.byteLength !== bufChallenge.byteLength) return false
+		return timingSafeEqual(bufHash, bufChallenge)
+	}
+	return false
+}
+
 async function handleProtectedResourceMetadata (req, res) {
 	const base = appUrl.replace(/\/$/, '')
 	const meta = {
@@ -44,7 +57,8 @@ async function handleAuthServerMetadata (req, res) {
 		token_endpoint: `${base}/oauth/token`,
 		response_types_supported: ['code'],
 		grant_types_supported: ['authorization_code'],
-		token_endpoint_auth_methods_supported: ['none', 'client_secret_post']
+		token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
+		code_challenge_methods_supported: ['S256']
 	}
 	res.statusCode = 200
 	res.setHeader('content-type', 'application/json; charset=utf-8')
@@ -58,11 +72,27 @@ async function handleAuthorize (req, res, query) {
 		res.end('GOOGLE_CLIENT_ID missing')
 		return
 	}
+	if (query.code_challenge_method && !query.code_challenge) {
+		res.statusCode = 400
+		res.setHeader('content-type', 'application/json; charset=utf-8')
+		res.end(JSON.stringify({ error: 'invalid_request', error_description: 'code_challenge_method provided without code_challenge' }))
+		return
+	}
+	const codeChallenge = query.code_challenge || null
+	const codeChallengeMethod = query.code_challenge_method || (codeChallenge ? 'S256' : null)
+	if (codeChallengeMethod && codeChallengeMethod !== 'S256') {
+		res.statusCode = 400
+		res.setHeader('content-type', 'application/json; charset=utf-8')
+		res.end(JSON.stringify({ error: 'invalid_request', error_description: 'unsupported code_challenge_method' }))
+		return
+	}
 	const callbackUrl = `${appUrl.replace(/\/$/, '')}/oauth/callback`
 	const ip = getClientIp(req)
 	const stateToken = db.oauthStates.create({
 		clientRedirectUri: query.redirect_uri || null,
 		clientState: query.state || null,
+		codeChallenge,
+		codeChallengeMethod,
 		ip
 	})
 	const u = new URL('https://accounts.google.com/o/oauth2/v2/auth')
@@ -141,7 +171,9 @@ async function handleCallback (req, res, query) {
 	if (oauthState.clientRedirectUri) {
 		const authCode = db.oauthCodes.create({
 			sessionId: session.id,
-			clientRedirectUri: oauthState.clientRedirectUri
+			clientRedirectUri: oauthState.clientRedirectUri,
+			codeChallenge: oauthState.codeChallenge,
+			codeChallengeMethod: oauthState.codeChallengeMethod
 		})
 		const target = new URL(oauthState.clientRedirectUri)
 		target.searchParams.set('code', authCode)
@@ -165,6 +197,7 @@ async function handleToken (req, res) {
 	const rawBody = await getBody(req)
 	let code = null
 	let redirectUri = null
+	let codeVerifier = null
 	const contentType = req.headers['content-type'] || ''
 	if (contentType.includes('application/json')) {
 		let parsed
@@ -177,11 +210,13 @@ async function handleToken (req, res) {
 		}
 		code = parsed?.code
 		redirectUri = parsed?.redirect_uri
+		codeVerifier = parsed?.code_verifier
 	}
 	if (!code) {
 		const params = new URLSearchParams(rawBody)
 		code = params.get('code')
 		redirectUri = redirectUri || params.get('redirect_uri')
+		codeVerifier = codeVerifier || params.get('code_verifier')
 	}
 	if (!code) {
 		res.statusCode = 400
@@ -201,6 +236,26 @@ async function handleToken (req, res) {
 		res.setHeader('content-type', 'application/json; charset=utf-8')
 		res.end(JSON.stringify({ error: 'invalid_grant', error_description: 'redirect_uri mismatch' }))
 		return
+	}
+	if (authCode.codeChallenge) {
+		if (!codeVerifier) {
+			res.statusCode = 400
+			res.setHeader('content-type', 'application/json; charset=utf-8')
+			res.end(JSON.stringify({ error: 'invalid_grant', error_description: 'Missing code_verifier' }))
+			return
+		}
+		if (typeof codeVerifier !== 'string' || codeVerifier.length < 43 || codeVerifier.length > 128) {
+			res.statusCode = 400
+			res.setHeader('content-type', 'application/json; charset=utf-8')
+			res.end(JSON.stringify({ error: 'invalid_grant', error_description: 'Invalid code_verifier' }))
+			return
+		}
+		if (!verifyCodeChallenge(codeVerifier, authCode.codeChallenge, authCode.codeChallengeMethod)) {
+			res.statusCode = 400
+			res.setHeader('content-type', 'application/json; charset=utf-8')
+			res.end(JSON.stringify({ error: 'invalid_grant', error_description: 'Invalid code_verifier' }))
+			return
+		}
 	}
 	const session = db.sessions.get(authCode.sessionId)
 	if (!session) {
