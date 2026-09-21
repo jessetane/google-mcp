@@ -10,7 +10,7 @@ import { getBody } from './util.js'
 
 export { server }
 
-const host = process.env.HOST || '::'
+const host = process.env.HOST || '::1'
 const port = process.env.PORT || '8080'
 
 function resolveToken (req) {
