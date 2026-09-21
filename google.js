@@ -92,7 +92,10 @@ async function proxyGoogleApi (opts = {}) {
 		headers: reqHeaders,
 		body: reqBody
 	})
-	const contentType = (res.headers.get('content-type') || '').split(';')[0].trim()
+	const rawContentType = res.headers.get('content-type') || ''
+	const contentType = rawContentType.split(';')[0].trim()
+	const charsetMatch = rawContentType.match(/charset=([^;]+)/i)
+	const charset = charsetMatch ? charsetMatch[1].trim().replace(/^["']|["']$/g, '') : undefined
 	let result
 	if (contentType === 'application/json') {
 		result = await res.json()
@@ -100,7 +103,7 @@ async function proxyGoogleApi (opts = {}) {
 		result = await res.text()
 	} else {
 		const buf = await res.arrayBuffer()
-		result = { binary: true, mimeType: contentType, data: Buffer.from(buf).toString('base64') }
+		result = { binary: true, mimeType: contentType, ...(charset && { charset }), data: Buffer.from(buf).toString('base64') }
 	}
 	if (!res.ok) {
 		const msg = result?.binary ? `Binary error response (${contentType})`

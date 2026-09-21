@@ -193,7 +193,12 @@ async function executeTool (name, args = {}, token) {
 			return {
 				content: [{
 					type: 'text',
-					text: JSON.stringify({ mimeType: result.mimeType, encoding: 'base64', data: result.data }, null, '\t')
+					text: JSON.stringify({
+						mimeType: result.mimeType,
+						...(result.charset && { charset: result.charset }),
+						encoding: 'base64',
+						data: result.data
+					}, null, '\t')
 				}]
 			}
 		}
