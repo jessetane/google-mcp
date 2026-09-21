@@ -47,7 +47,7 @@ function isAllowedRedirectUri (redirectUri) {
 	} catch {
 		return false
 	}
-	const envDomains = process.env.ALLOWED_REDIRECT_DOMAINS || 'localhost,127.0.0.1,chatgpt.com,chat.openai.com,claude.ai,typingmind.com,dify.ai,coze.com,poe.com,mistral.ai'
+	const envDomains = process.env.ALLOWED_REDIRECT_DOMAINS || 'localhost,127.0.0.1,chatgpt.com,chat.openai.com,claude.ai,claude.com,typingmind.com,dify.ai,coze.com,poe.com,mistral.ai'
 	const allowedDomains = envDomains.split(',').map(d => d.trim().toLowerCase()).filter(Boolean)
 	const hostname = url.hostname.toLowerCase()
 	return allowedDomains.some(domain => hostname === domain || hostname.endsWith(`.${domain}`))
@@ -73,7 +73,8 @@ async function handleAuthServerMetadata (req, res) {
 		response_types_supported: ['code'],
 		grant_types_supported: ['authorization_code'],
 		token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
-		code_challenge_methods_supported: ['S256']
+		code_challenge_methods_supported: ['S256'],
+		client_id_metadata_document_supported: true
 	}
 	res.statusCode = 200
 	res.setHeader('content-type', 'application/json; charset=utf-8')

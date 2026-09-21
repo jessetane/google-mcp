@@ -192,6 +192,7 @@ test('well-known oauth discovery endpoints', async () => {
 	assert.ok(authData.authorization_endpoint.endsWith('/oauth/authorize'))
 	assert.ok(authData.token_endpoint.endsWith('/oauth/token'))
 	assert.deepEqual(authData.code_challenge_methods_supported, ['S256'])
+	assert.equal(authData.client_id_metadata_document_supported, true)
 })
 
 test('oauth pkce flow with S256', async () => {
