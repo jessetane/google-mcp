@@ -31,7 +31,7 @@ Go to **Plugins** → **New Plugin**:
 Go to **Customize** → **Connectors**:
 
 * Add a new connector with URL `<APP_URL>/mcp`.  
-* OAuth is selected by default; approve the connection.  
+* Select "Sign in now" and "Use Claude's published identity".
 
 ### CLI Agents (Antigravity, Claude Code, etc.)
 Sign in at `<APP_URL>/oauth/authorize` in your browser to get your session token, then add the MCP server with the `Authorization: Bearer <token>` header:
