@@ -1,0 +1,204 @@
+import * as db from './db/index.js'
+import { getUserInfo } from './google.js'
+import { getBody } from './util.js'
+
+export {
+	handleAuthorize,
+	handleCallback,
+	handleToken,
+	handleProtectedResourceMetadata,
+	handleAuthServerMetadata
+}
+
+const appUrl = process.env.APP_URL || 'http://localhost:8080'
+const clientId = process.env.GOOGLE_CLIENT_ID
+const clientSecret = process.env.GOOGLE_CLIENT_SECRET
+const scopes = [
+	'https://www.googleapis.com/auth/drive',
+	'https://www.googleapis.com/auth/spreadsheets',
+	'https://www.googleapis.com/auth/documents',
+	'https://www.googleapis.com/auth/userinfo.email',
+	'https://www.googleapis.com/auth/userinfo.profile'
+].join(' ')
+
+function getClientIp (req) {
+	return req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || null
+}
+
+
+async function handleProtectedResourceMetadata (req, res) {
+	const base = appUrl.replace(/\/$/, '')
+	const meta = {
+		resource: `${base}/mcp`,
+		authorization_servers: [base]
+	}
+	res.statusCode = 200
+	res.setHeader('content-type', 'application/json; charset=utf-8')
+	res.end(JSON.stringify(meta, null, '\t'))
+}
+
+async function handleAuthServerMetadata (req, res) {
+	const base = appUrl.replace(/\/$/, '')
+	const meta = {
+		issuer: base,
+		authorization_endpoint: `${base}/oauth/authorize`,
+		token_endpoint: `${base}/oauth/token`,
+		response_types_supported: ['code'],
+		grant_types_supported: ['authorization_code'],
+		token_endpoint_auth_methods_supported: ['none', 'client_secret_post']
+	}
+	res.statusCode = 200
+	res.setHeader('content-type', 'application/json; charset=utf-8')
+	res.end(JSON.stringify(meta, null, '\t'))
+}
+
+async function handleAuthorize (req, res, query) {
+	if (!clientId) {
+		res.statusCode = 500
+		res.setHeader('content-type', 'text/plain')
+		res.end('GOOGLE_CLIENT_ID missing')
+		return
+	}
+	const callbackUrl = `${appUrl.replace(/\/$/, '')}/oauth/callback`
+	const ip = getClientIp(req)
+	const stateToken = db.oauthStates.create({
+		clientRedirectUri: query.redirect_uri || null,
+		clientState: query.state || null,
+		ip
+	})
+	const u = new URL('https://accounts.google.com/o/oauth2/v2/auth')
+	u.searchParams.set('client_id', clientId)
+	u.searchParams.set('redirect_uri', callbackUrl)
+	u.searchParams.set('response_type', 'code')
+	u.searchParams.set('scope', scopes)
+	u.searchParams.set('access_type', 'offline')
+	u.searchParams.set('prompt', 'consent')
+	u.searchParams.set('state', stateToken)
+	res.statusCode = 302
+	res.setHeader('location', u.toString())
+	res.end()
+}
+
+async function handleCallback (req, res, query) {
+	const code = query.code
+	const rawState = query.state
+	if (!code) {
+		res.statusCode = 400
+		res.setHeader('content-type', 'text/plain')
+		res.end(`Google Auth Error: ${query.error || 'no code'}`)
+		return
+	}
+	const oauthState = db.oauthStates.consume(rawState)
+	if (!oauthState) {
+		res.statusCode = 403
+		res.setHeader('content-type', 'text/plain')
+		res.end('Invalid or expired OAuth state (CSRF verification failed). Please try initiating sign-in again.')
+		return
+	}
+	const callbackUrl = `${appUrl.replace(/\/$/, '')}/oauth/callback`
+	const params = new URLSearchParams({
+		code,
+		client_id: clientId,
+		client_secret: clientSecret,
+		redirect_uri: callbackUrl,
+		grant_type: 'authorization_code'
+	})
+	const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+		method: 'POST',
+		headers: { 'content-type': 'application/x-www-form-urlencoded' },
+		body: params.toString()
+	})
+	const tokenData = await tokenRes.json()
+	if (!tokenRes.ok) {
+		console.error('Google token exchange failed:', tokenData)
+		res.statusCode = 502
+		res.setHeader('content-type', 'text/plain')
+		res.end('Failed to exchange authorization code with Google')
+		return
+	}
+	const googleUser = await getUserInfo(tokenData.access_token)
+	const email = (googleUser.email || '').toLowerCase()
+	if (!email) {
+		res.statusCode = 400
+		res.setHeader('content-type', 'text/plain')
+		res.end('Could not retrieve user email from Google account.')
+		return
+	}
+	const user = db.users.upsert({
+		email,
+		name: googleUser.name || null,
+		picture: googleUser.picture || null
+	})
+	const ip = getClientIp(req)
+	const ua = req.headers['user-agent'] || null
+	const session = db.sessions.create({
+		userId: user.id,
+		refreshToken: tokenData.refresh_token || null,
+		accessToken: tokenData.access_token,
+		expiresAt: Date.now() + ((tokenData.expires_in || 3600) * 1000),
+		ip,
+		ua
+	})
+	if (oauthState.clientRedirectUri) {
+		const authCode = db.oauthCodes.create({
+			sessionId: session.id,
+			clientRedirectUri: oauthState.clientRedirectUri
+		})
+		const target = new URL(oauthState.clientRedirectUri)
+		target.searchParams.set('code', authCode)
+		if (oauthState.clientState) target.searchParams.set('state', oauthState.clientState)
+		res.statusCode = 302
+		res.setHeader('location', target.toString())
+		res.end()
+		return
+	}
+	res.statusCode = 200
+	res.setHeader('content-type', 'text/plain; charset=utf-8')
+	res.end(`user: ${email}\ntoken: ${session.token}\n\nheader:\nAuthorization: Bearer ${session.token}\n`)
+}
+
+async function handleToken (req, res) {
+	if (req.method !== 'POST') {
+		res.statusCode = 405
+		res.end('Method Not Allowed')
+		return
+	}
+	const rawBody = await getBody(req)
+	let code = null
+	const contentType = req.headers['content-type'] || ''
+	if (contentType.includes('application/json')) {
+		try {
+			code = JSON.parse(rawBody)?.code
+		} catch (e) {}
+	}
+	if (!code) {
+		code = new URLSearchParams(rawBody).get('code')
+	}
+	if (!code) {
+		res.statusCode = 400
+		res.setHeader('content-type', 'application/json; charset=utf-8')
+		res.end(JSON.stringify({ error: 'invalid_request', error_description: 'Missing code' }))
+		return
+	}
+	const authCode = db.oauthCodes.consume(code)
+	if (!authCode) {
+		res.statusCode = 400
+		res.setHeader('content-type', 'application/json; charset=utf-8')
+		res.end(JSON.stringify({ error: 'invalid_grant', error_description: 'Invalid or expired authorization code' }))
+		return
+	}
+	const session = db.sessions.get(authCode.sessionId)
+	if (!session) {
+		res.statusCode = 400
+		res.setHeader('content-type', 'application/json; charset=utf-8')
+		res.end(JSON.stringify({ error: 'invalid_grant', error_description: 'Session not found' }))
+		return
+	}
+	res.statusCode = 200
+	res.setHeader('content-type', 'application/json; charset=utf-8')
+	res.end(JSON.stringify({
+		access_token: session.token,
+		token_type: 'bearer',
+		expires_in: 30 * 24 * 60 * 60
+	}))
+}
