@@ -136,16 +136,37 @@ test('oauth code exchange flow', async function () {
 	})
 	assert.ok(code)
 	const addr = server.address()
+	const mismatchRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/token`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/x-www-form-urlencoded' },
+		body: new URLSearchParams({
+			code,
+			redirect_uri: 'https://evil.com/callback',
+			grant_type: 'authorization_code'
+		}).toString()
+	})
+	assert.equal(mismatchRes.status, 400)
+	const mismatchData = await mismatchRes.json()
+	assert.equal(mismatchData.error, 'invalid_grant')
+
+	const code2 = db.oauthCodes.create({
+		sessionId: session.id,
+		clientRedirectUri: 'https://chatgpt.com/callback'
+	})
 	const res = await fetch(`http://127.0.0.1:${addr.port}/oauth/token`, {
 		method: 'POST',
 		headers: { 'content-type': 'application/x-www-form-urlencoded' },
-		body: new URLSearchParams({ code, grant_type: 'authorization_code' }).toString()
+		body: new URLSearchParams({
+			code: code2,
+			redirect_uri: 'https://chatgpt.com/callback',
+			grant_type: 'authorization_code'
+		}).toString()
 	})
 	assert.equal(res.status, 200)
 	const data = await res.json()
 	assert.equal(data.access_token, session.token)
 	assert.equal(data.token_type, 'bearer')
-	assert.equal(db.oauthCodes.consume(code), null)
+	assert.equal(db.oauthCodes.consume(code2), null)
 })
 
 test('well-known oauth discovery endpoints', async function () {
@@ -196,6 +217,28 @@ test('unknown rpc method returns -32601 error', async function () {
 	const data = await res.json()
 	assert.ok(data.error, 'response should contain an error')
 	assert.equal(data.error.code, -32601)
+})
+
+test('mcp invalid json returns jsonrpc parse error', async function () {
+	const addr = server.address()
+	const res = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: '{"invalid_json'
+	})
+	const data = await res.json()
+	assert.equal(data.jsonrpc, '2.0')
+	assert.equal(data.error?.code, -32700)
+})
+
+test('mcp non-POST request returns 405 Method Not Allowed', async function () {
+	const addr = server.address()
+	const res = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
+		method: 'GET'
+	})
+	assert.equal(res.status, 405)
+	const data = await res.json()
+	assert.equal(data.error, 'Method Not Allowed')
 })
 
 test('teardown server', function (t, done) {
