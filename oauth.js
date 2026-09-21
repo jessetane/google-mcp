@@ -167,11 +167,16 @@ async function handleToken (req, res) {
 	let redirectUri = null
 	const contentType = req.headers['content-type'] || ''
 	if (contentType.includes('application/json')) {
+		let parsed
 		try {
-			const parsed = JSON.parse(rawBody)
-			code = parsed?.code
-			redirectUri = parsed?.redirect_uri
-		} catch (e) {}
+			parsed = JSON.parse(rawBody)
+		} catch (err) {
+			const parseErr = new Error('invalid_request: Malformed JSON body')
+			parseErr.code = 400
+			throw parseErr
+		}
+		code = parsed?.code
+		redirectUri = parsed?.redirect_uri
 	}
 	if (!code) {
 		const params = new URLSearchParams(rawBody)

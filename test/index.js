@@ -9,9 +9,9 @@ const testDbPath = path.join(dirname, 'test.db')
 process.env.DB_PATH = testDbPath
 process.env.NODE_ENV = 'test'
 
-try {
-	fs.unlinkSync(testDbPath)
-} catch (err) {}
+fs.rmSync(testDbPath, { force: true })
+fs.rmSync(`${testDbPath}-wal`, { force: true })
+fs.rmSync(`${testDbPath}-shm`, { force: true })
 
 const { server } = await import('../index.js')
 const db = await import('../db/index.js')
@@ -167,6 +167,15 @@ test('oauth code exchange flow', async () => {
 	assert.equal(data.access_token, session.token)
 	assert.equal(data.token_type, 'bearer')
 	assert.equal(db.oauthCodes.consume(code2), null)
+
+	const badJsonRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/token`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: '{"invalid_json'
+	})
+	assert.equal(badJsonRes.status, 400)
+	const badJsonData = await badJsonRes.json()
+	assert.match(badJsonData.error, /invalid_request/)
 })
 
 test('well-known oauth discovery endpoints', async () => {
@@ -243,11 +252,9 @@ test('mcp non-POST request returns 405 Method Not Allowed', async () => {
 
 test('teardown server', (t, done) => {
 	server.close(() => {
-		try {
-			fs.unlinkSync(testDbPath)
-			fs.unlinkSync(`${testDbPath}-wal`)
-			fs.unlinkSync(`${testDbPath}-shm`)
-		} catch (err) {}
+		fs.rmSync(testDbPath, { force: true })
+		fs.rmSync(`${testDbPath}-wal`, { force: true })
+		fs.rmSync(`${testDbPath}-shm`, { force: true })
 		done()
 	})
 })

@@ -54,8 +54,14 @@ async function getUserInfo (googleToken) {
 		headers: { authorization: `Bearer ${googleToken}` }
 	})
 	if (!res.ok) {
-		const data = await res.json().catch(() => null)
-		const err = new Error(data?.error_description || data?.error?.message || 'Failed to fetch user info')
+		let data = await res.text()
+		try {
+			data = JSON.parse(data)
+		} catch (e) {}
+		const msg = typeof data === 'object'
+			? (data?.error_description || data?.error?.message || JSON.stringify(data))
+			: (data || 'Failed to fetch user info')
+		const err = new Error(msg)
 		err.status = res.status
 		err.data = data
 		throw err
