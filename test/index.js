@@ -16,11 +16,11 @@ try {
 const { server } = await import('../index.js')
 const db = await import('../db/index.js')
 
-test('setup server', function (t, done) {
+test('setup server', (t, done) => {
 	server.listen(0, '127.0.0.1', done)
 })
 
-test('health endpoint', async function () {
+test('health endpoint', async () => {
 	const addr = server.address()
 	const res = await fetch(`http://127.0.0.1:${addr.port}/api/health`)
 	assert.equal(res.status, 200)
@@ -28,7 +28,7 @@ test('health endpoint', async function () {
 	assert.equal(text, 'ok\n')
 })
 
-test('root endpoint', async function () {
+test('root endpoint', async () => {
 	const addr = server.address()
 	const res = await fetch(`http://127.0.0.1:${addr.port}/`)
 	assert.equal(res.status, 200)
@@ -36,7 +36,7 @@ test('root endpoint', async function () {
 	assert.match(text, /endpoints:/)
 })
 
-test('mcp initialize & tools/list', async function () {
+test('mcp initialize & tools/list', async () => {
 	const addr = server.address()
 	const initRes = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
 		method: 'POST',
@@ -64,11 +64,11 @@ test('mcp initialize & tools/list', async function () {
 	})
 	assert.equal(listRes.status, 200)
 	const listData = await listRes.json()
-	const toolNames = listData.result.tools.map(function (t) { return t.name })
+	const toolNames = listData.result.tools.map(t => t.name)
 	assert.deepEqual(toolNames, ['authStatus', 'driveApi', 'sheetsApi', 'docsApi'])
 })
 
-test('mcp authStatus tool without auth', async function () {
+test('mcp authStatus tool without auth', async () => {
 	const addr = server.address()
 	const res = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
 		method: 'POST',
@@ -89,7 +89,7 @@ test('mcp authStatus tool without auth', async function () {
 	assert.equal(parsed.authenticated, false)
 })
 
-test('mcp driveApi tool requires auth', async function () {
+test('mcp driveApi tool requires auth', async () => {
 	const addr = server.address()
 	const res = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
 		method: 'POST',
@@ -110,7 +110,7 @@ test('mcp driveApi tool requires auth', async function () {
 	assert.match(data.result.content[0].text, /Authentication required/)
 })
 
-test('oauth state flow', async function () {
+test('oauth state flow', async () => {
 	const state = db.oauthStates.create({
 		clientRedirectUri: 'https://example.com/oauth/return',
 		clientState: 'random-state',
@@ -123,7 +123,7 @@ test('oauth state flow', async function () {
 	assert.equal(db.oauthStates.consume(state), null)
 })
 
-test('oauth code exchange flow', async function () {
+test('oauth code exchange flow', async () => {
 	const user = db.users.upsert({ email: 'test@example.com', name: 'Test User' })
 	const session = db.sessions.create({
 		userId: user.id,
@@ -169,7 +169,7 @@ test('oauth code exchange flow', async function () {
 	assert.equal(db.oauthCodes.consume(code2), null)
 })
 
-test('well-known oauth discovery endpoints', async function () {
+test('well-known oauth discovery endpoints', async () => {
 	const addr = server.address()
 	const resResource = await fetch(`http://127.0.0.1:${addr.port}/.well-known/oauth-protected-resource`)
 	assert.equal(resResource.status, 200)
@@ -183,7 +183,7 @@ test('well-known oauth discovery endpoints', async function () {
 	assert.ok(authData.token_endpoint.endsWith('/oauth/token'))
 })
 
-test('cors preflight options request', async function () {
+test('cors preflight options request', async () => {
 	const addr = server.address()
 	const res = await fetch(`http://127.0.0.1:${addr.port}/oauth/token`, {
 		method: 'OPTIONS'
@@ -193,7 +193,7 @@ test('cors preflight options request', async function () {
 	assert.match(res.headers.get('access-control-allow-methods'), /POST/)
 })
 
-test('not found returns 404 json', async function () {
+test('not found returns 404 json', async () => {
 	const addr = server.address()
 	const res = await fetch(`http://127.0.0.1:${addr.port}/unknown-route`)
 	assert.equal(res.status, 404)
@@ -201,7 +201,7 @@ test('not found returns 404 json', async function () {
 	assert.equal(data.error, 'not found')
 })
 
-test('unknown rpc method returns -32601 error', async function () {
+test('unknown rpc method returns -32601 error', async () => {
 	const addr = server.address()
 	const res = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
 		method: 'POST',
@@ -219,7 +219,7 @@ test('unknown rpc method returns -32601 error', async function () {
 	assert.equal(data.error.code, -32601)
 })
 
-test('mcp invalid json returns jsonrpc parse error', async function () {
+test('mcp invalid json returns jsonrpc parse error', async () => {
 	const addr = server.address()
 	const res = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
 		method: 'POST',
@@ -231,7 +231,7 @@ test('mcp invalid json returns jsonrpc parse error', async function () {
 	assert.equal(data.error?.code, -32700)
 })
 
-test('mcp non-POST request returns 405 Method Not Allowed', async function () {
+test('mcp non-POST request returns 405 Method Not Allowed', async () => {
 	const addr = server.address()
 	const res = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
 		method: 'GET'
@@ -241,8 +241,8 @@ test('mcp non-POST request returns 405 Method Not Allowed', async function () {
 	assert.equal(data.error, 'Method Not Allowed')
 })
 
-test('teardown server', function (t, done) {
-	server.close(function () {
+test('teardown server', (t, done) => {
+	server.close(() => {
 		try {
 			fs.unlinkSync(testDbPath)
 			fs.unlinkSync(`${testDbPath}-wal`)

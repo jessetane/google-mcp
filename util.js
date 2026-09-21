@@ -1,10 +1,10 @@
 export { getBody }
 
 function getBody (req, maxBytes = 1024 * 1024) {
-	return new Promise(function (resolve, reject) {
+	return new Promise((resolve, reject) => {
 		let size = 0
 		const buffers = []
-		req.on('data', function (chunk) {
+		req.on('data', chunk => {
 			size += chunk.length
 			if (size > maxBytes) {
 				const err = new Error('Payload Too Large')
@@ -16,7 +16,7 @@ function getBody (req, maxBytes = 1024 * 1024) {
 			buffers.push(chunk)
 		})
 		req.on('error', reject)
-		req.on('end', function () {
+		req.on('end', () => {
 			resolve(Buffer.concat(buffers).toString('utf8'))
 		})
 	})
