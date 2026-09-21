@@ -178,7 +178,7 @@ test('oauth code exchange flow', async () => {
 	assert.equal(res.status, 200)
 	const data = await res.json()
 	assert.equal(data.access_token, session.token)
-	assert.equal(data.token_type, 'bearer')
+	assert.equal(data.token_type, 'Bearer')
 	assert.equal(db.oauthCodes.consume(code2), null)
 
 	const badJsonRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/token`, {

@@ -299,7 +299,7 @@ async function handleToken (req, res) {
 	res.setHeader('content-type', 'application/json; charset=utf-8')
 	res.end(JSON.stringify({
 		access_token: session.token,
-		token_type: 'bearer',
+		token_type: 'Bearer',
 		expires_in: 30 * 24 * 60 * 60
 	}))
 }
