@@ -290,8 +290,18 @@ test('oauth pkce authorize endpoint validation and state propagation', async () 
 	assert.equal(plainMethodRes.status, 400)
 	const plainMethodData = await plainMethodRes.json()
 	assert.equal(plainMethodData.error, 'invalid_request')
+	const unauthorizedRedirectRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize?redirect_uri=https://evil.com/callback&code_challenge=xyz`)
+	assert.equal(unauthorizedRedirectRes.status, 400)
+	const unauthorizedRedirectData = await unauthorizedRedirectRes.json()
+	assert.equal(unauthorizedRedirectData.error, 'invalid_request')
+	assert.match(unauthorizedRedirectData.error_description, /redirect_uri is not allowed/)
+	const missingPkceRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize?redirect_uri=https://chatgpt.com/callback`)
+	assert.equal(missingPkceRes.status, 400)
+	const missingPkceData = await missingPkceRes.json()
+	assert.equal(missingPkceData.error, 'invalid_request')
+	assert.match(missingPkceData.error_description, /code_challenge required/)
 	const challenge = 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM'
-	const authRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize?redirect_uri=https://example.com/callback&state=test-state&code_challenge=${challenge}&code_challenge_method=S256`, {
+	const authRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize?redirect_uri=https://chatgpt.com/callback&state=test-state&code_challenge=${challenge}&code_challenge_method=S256`, {
 		redirect: 'manual'
 	})
 	assert.equal(authRes.status, 302)
@@ -301,10 +311,20 @@ test('oauth pkce authorize endpoint validation and state propagation', async () 
 	const stateParam = targetUrl.searchParams.get('state')
 	assert.ok(stateParam)
 	const stateRow = db.oauthStates.consume(stateParam)
-	assert.equal(stateRow.clientRedirectUri, 'https://example.com/callback')
+	assert.equal(stateRow.clientRedirectUri, 'https://chatgpt.com/callback')
 	assert.equal(stateRow.clientState, 'test-state')
 	assert.equal(stateRow.codeChallenge, challenge)
 	assert.equal(stateRow.codeChallengeMethod, 'S256')
+	const directAuthRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize`, {
+		redirect: 'manual'
+	})
+	assert.equal(directAuthRes.status, 302)
+	const directLocation = directAuthRes.headers.get('location')
+	assert.ok(directLocation)
+	const directStateParam = new URL(directLocation).searchParams.get('state')
+	const directStateRow = db.oauthStates.consume(directStateParam)
+	assert.equal(directStateRow.clientRedirectUri, null)
+	assert.equal(directStateRow.codeChallenge, null)
 })
 
 test('cors preflight options request', async () => {

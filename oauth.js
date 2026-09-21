@@ -8,7 +8,8 @@ export {
 	handleCallback,
 	handleToken,
 	handleProtectedResourceMetadata,
-	handleAuthServerMetadata
+	handleAuthServerMetadata,
+	isAllowedRedirectUri
 }
 
 const appUrl = process.env.APP_URL || 'http://localhost:8080'
@@ -36,6 +37,20 @@ function verifyCodeChallenge (verifier, challenge, method) {
 		return timingSafeEqual(bufHash, bufChallenge)
 	}
 	return false
+}
+
+function isAllowedRedirectUri (redirectUri) {
+	if (!redirectUri) return false
+	let url
+	try {
+		url = new URL(redirectUri)
+	} catch {
+		return false
+	}
+	const envDomains = process.env.ALLOWED_REDIRECT_DOMAINS || 'localhost,127.0.0.1,chatgpt.com,chat.openai.com,claude.ai,typingmind.com,dify.ai,coze.com,poe.com,mistral.ai'
+	const allowedDomains = envDomains.split(',').map(d => d.trim().toLowerCase()).filter(Boolean)
+	const hostname = url.hostname.toLowerCase()
+	return allowedDomains.some(domain => hostname === domain || hostname.endsWith(`.${domain}`))
 }
 
 async function handleProtectedResourceMetadata (req, res) {
@@ -71,6 +86,21 @@ async function handleAuthorize (req, res, query) {
 		res.setHeader('content-type', 'text/plain')
 		res.end('GOOGLE_CLIENT_ID missing')
 		return
+	}
+	if (query.redirect_uri) {
+		if (!isAllowedRedirectUri(query.redirect_uri)) {
+			console.warn(`[oauth] Unauthorized redirect_uri: "${query.redirect_uri}". Add domain to ALLOWED_REDIRECT_DOMAINS to allow.`)
+			res.statusCode = 400
+			res.setHeader('content-type', 'application/json; charset=utf-8')
+			res.end(JSON.stringify({ error: 'invalid_request', error_description: `redirect_uri is not allowed: ${query.redirect_uri}` }))
+			return
+		}
+		if (!query.code_challenge) {
+			res.statusCode = 400
+			res.setHeader('content-type', 'application/json; charset=utf-8')
+			res.end(JSON.stringify({ error: 'invalid_request', error_description: 'code_challenge required when redirect_uri is provided' }))
+			return
+		}
 	}
 	if (query.code_challenge_method && !query.code_challenge) {
 		res.statusCode = 400
