@@ -3,8 +3,7 @@ import { randomUUID } from 'node:crypto'
 
 export {
 	init,
-	upsert,
-	getByEmail
+	upsert
 }
 
 function init () {

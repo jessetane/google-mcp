@@ -112,4 +112,6 @@ function updateTokens (id, opts = {}) {
 function pruneExpired (maxAgeMs = 30 * 24 * 60 * 60 * 1000) {
 	const minDate = new Date(Date.now() - maxAgeMs).toISOString()
 	sqlite.prepare('DELETE FROM sessions WHERE updated < ?').run(minDate)
+	sqlite.prepare('DELETE FROM oauth_states WHERE created_at < ?').run(Date.now() - (15 * 60 * 1000))
+	sqlite.prepare('DELETE FROM oauth_codes WHERE created_at < ?').run(Date.now() - (10 * 60 * 1000))
 }
