@@ -25,7 +25,6 @@ function getClientIp (req) {
 	return req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || null
 }
 
-
 async function handleProtectedResourceMetadata (req, res) {
 	const base = appUrl.replace(/\/$/, '')
 	const meta = {
@@ -165,14 +164,19 @@ async function handleToken (req, res) {
 	}
 	const rawBody = await getBody(req)
 	let code = null
+	let redirectUri = null
 	const contentType = req.headers['content-type'] || ''
 	if (contentType.includes('application/json')) {
 		try {
-			code = JSON.parse(rawBody)?.code
+			const parsed = JSON.parse(rawBody)
+			code = parsed?.code
+			redirectUri = parsed?.redirect_uri
 		} catch (e) {}
 	}
 	if (!code) {
-		code = new URLSearchParams(rawBody).get('code')
+		const params = new URLSearchParams(rawBody)
+		code = params.get('code')
+		redirectUri = redirectUri || params.get('redirect_uri')
 	}
 	if (!code) {
 		res.statusCode = 400
@@ -185,6 +189,12 @@ async function handleToken (req, res) {
 		res.statusCode = 400
 		res.setHeader('content-type', 'application/json; charset=utf-8')
 		res.end(JSON.stringify({ error: 'invalid_grant', error_description: 'Invalid or expired authorization code' }))
+		return
+	}
+	if (authCode.clientRedirectUri && authCode.clientRedirectUri !== redirectUri) {
+		res.statusCode = 400
+		res.setHeader('content-type', 'application/json; charset=utf-8')
+		res.end(JSON.stringify({ error: 'invalid_grant', error_description: 'redirect_uri mismatch' }))
 		return
 	}
 	const session = db.sessions.get(authCode.sessionId)
