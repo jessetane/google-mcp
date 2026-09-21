@@ -16,6 +16,7 @@ fs.rmSync(`${testDbPath}-shm`, { force: true })
 
 const { server } = await import('../index.js')
 const db = await import('../db/index.js')
+const { readResponseBody } = await import('../google.js')
 
 test('setup server', (t, done) => {
 	server.listen(0, '127.0.0.1', done)
@@ -383,6 +384,36 @@ test('mcp non-POST request returns 405 Method Not Allowed', async () => {
 	assert.equal(res.status, 405)
 	const data = await res.json()
 	assert.equal(data.error, 'Method Not Allowed')
+})
+
+test('readResponseBody enforces size limit on streams', async () => {
+	const stream = new ReadableStream({
+		start (controller) {
+			controller.enqueue(new Uint8Array(500))
+			controller.enqueue(new Uint8Array(600))
+			controller.close()
+		}
+	})
+	const response = new Response(stream)
+	await assert.rejects(
+		async () => {
+			await readResponseBody(response, 1000)
+		},
+		err => {
+			assert.equal(err.status, 413)
+			assert.match(err.message, /File too large/)
+			return true
+		}
+	)
+	const smallStream = new ReadableStream({
+		start (controller) {
+			controller.enqueue(new TextEncoder().encode('hello world'))
+			controller.close()
+		}
+	})
+	const smallResponse = new Response(smallStream)
+	const buf = await readResponseBody(smallResponse, 1000)
+	assert.equal(buf.toString(), 'hello world')
 })
 
 test('teardown server', (t, done) => {
