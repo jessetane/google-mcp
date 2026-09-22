@@ -100,24 +100,15 @@ const services = {
 			'https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata'
 		]
 	},
-	keep: {
-		id: 'keep',
-		name: 'Google Keep',
-		workspace: true,
-		ro: ['https://www.googleapis.com/auth/keep.readonly'],
-		rw: ['https://www.googleapis.com/auth/keep']
-	},
 	meet: {
 		id: 'meet',
 		name: 'Google Meet',
-		workspace: true,
 		ro: ['https://www.googleapis.com/auth/meetings.space.readonly'],
 		rw: ['https://www.googleapis.com/auth/meetings.space.created']
 	},
 	chat: {
 		id: 'chat',
 		name: 'Google Chat',
-		workspace: true,
 		ro: [
 			'https://www.googleapis.com/auth/chat.spaces.readonly',
 			'https://www.googleapis.com/auth/chat.messages.readonly'
@@ -126,6 +117,13 @@ const services = {
 			'https://www.googleapis.com/auth/chat.spaces',
 			'https://www.googleapis.com/auth/chat.messages'
 		]
+	},
+	keep: {
+		id: 'keep',
+		name: 'Google Keep',
+		enterprise: true,
+		ro: ['https://www.googleapis.com/auth/keep.readonly'],
+		rw: ['https://www.googleapis.com/auth/keep']
 	}
 }
 
@@ -282,7 +280,7 @@ async function handleAuthorize (req, res, query) {
 	const clientServices = Object.values(services).map(s => ({
 		id: s.id,
 		name: s.name,
-		workspace: Boolean(s.workspace)
+		enterprise: Boolean(s.enterprise)
 	}))
 	const initData = {
 		services: clientServices,

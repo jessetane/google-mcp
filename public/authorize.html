@@ -103,8 +103,8 @@
 				cursor: not-allowed;
 			}
 
-			.workspace-mark {
-				color: #1a73e8;
+			.enterprise-mark {
+				color: #000;
 				font-weight: bold;
 			}
 
@@ -153,7 +153,7 @@
 					<tbody id="service-rows"></tbody>
 				</table>
 				<div class="footnote">
-					<span class="workspace-mark">**</span> Enterprise / Google Workspace accounts only (Google Keep, Meet, Chat). Requests from personal (@gmail.com) accounts will fail if selected.
+					<span class="enterprise-mark">*</span> Google Keep API is restricted by Google to enterprise Google Workspace accounts with domain-wide delegation. Requests from personal (@gmail.com) accounts will fail if selected.
 				</div>
 				<button type="submit">Continue to Google</button>
 			</form>
@@ -173,7 +173,7 @@
 				const services = document.querySelectorAll('input[name="services"]')
 				for (const s of services) {
 					const id = s.value
-					const isWorkspace = s.getAttribute('data-workspace') === '1'
+					const isEnterprise = s.getAttribute('data-enterprise') === '1'
 					const w = document.getElementById('wr_' + id)
 					if (kind === 'none') {
 						s.checked = false
@@ -182,7 +182,7 @@
 							w.disabled = true
 						}
 					} else if (kind === 'recommended') {
-						s.checked = !isWorkspace
+						s.checked = !isEnterprise
 						if (w) {
 							w.checked = false
 							w.disabled = !s.checked
@@ -221,17 +221,17 @@
 					inputSvc.name = 'services'
 					inputSvc.id = 'svc_' + s.id
 					inputSvc.value = s.id
-					inputSvc.setAttribute('data-workspace', s.workspace ? '1' : '0')
-					inputSvc.checked = !s.workspace
+					inputSvc.setAttribute('data-enterprise', s.enterprise ? '1' : '0')
+					inputSvc.checked = !s.enterprise
 					inputSvc.addEventListener('change', function () {
 						onServiceToggle(s.id)
 					})
 					const spanName = document.createElement('span')
 					spanName.textContent = s.name
-					if (s.workspace) {
+					if (s.enterprise) {
 						const mark = document.createElement('span')
-						mark.className = 'workspace-mark'
-						mark.textContent = ' **'
+						mark.className = 'enterprise-mark'
+						mark.textContent = ' *'
 						spanName.appendChild(mark)
 					}
 					label.appendChild(inputSvc)
