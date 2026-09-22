@@ -158,8 +158,8 @@
 					<tbody id="service-rows"></tbody>
 				</table>
 				<div class="footnote">
-					<div><span class="restricted-mark">*</span> Restricted scopes (Gmail, Photos) trigger Google unverified app warnings unless published or in a Google Workspace domain with test users configured.</div>
-					<div><span class="workspace-mark">†</span> Requires a Google Workspace account. Requests from personal (@gmail.com) accounts will fail if selected.</div>
+					<div><span class="restricted-mark">*</span> Restricted scopes (Gmail, Photos) trigger Google unverified app warnings unless published or configured with test users.</div>
+					<div><span class="workspace-mark">**</span> Enterprise / Google Workspace accounts only (Google Keep, Meet, Chat). Requests from personal (@gmail.com) accounts will fail if selected.</div>
 				</div>
 				<button type="submit">Continue to Google</button>
 			</form>
@@ -246,7 +246,7 @@
 					if (s.workspace) {
 						const mark = document.createElement('span')
 						mark.className = 'workspace-mark'
-						mark.textContent = ' †'
+						mark.textContent = ' **'
 						spanName.appendChild(mark)
 					}
 					label.appendChild(inputSvc)

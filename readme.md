@@ -26,8 +26,8 @@ A Google Cloud project with OAuth credentials is required:
 ### Authorization & Scope Selection
 
 * **Interactive Scope Selection (Default for Claude & ChatGPT)**: Visiting `<APP_URL>/oauth/authorize` displays a consent screen where users select which Google services to enable. All services are **read-only by default**; checking the **Write** column grants full read/write privileges for that service.  
-* **Presets**: Quick-select buttons are available for **Recommended** (standard consumer-compatible services, excluding restricted and Workspace-only scopes), **All Read-Only**, **All Write**, and **None**.  
-* **Restricted & Workspace Scopes**: Scopes marked with `*` (Gmail, Photos) require verification or test user configuration in Google Cloud. Scopes marked with `†` (Google Keep, Meet, Chat) require a Google Workspace enterprise account and will fail if requested from a personal (`@gmail.com`) account.  
+* **Presets**: Quick-select buttons are available for **Recommended** (standard consumer-compatible services, excluding restricted and enterprise/Workspace scopes), **All Read-Only**, **All Write**, and **None**.  
+* **Restricted & Enterprise Scopes**: Scopes marked with `*` (Gmail, Photos) require verification or test user configuration in Google Cloud. Scopes marked with `**` (Google Keep, Meet, Chat) require an Enterprise or Google Workspace account and will fail if requested from a personal (`@gmail.com`) account.  
 
 ### ChatGPT
 Go to **Plugins** → **New Plugin**:
