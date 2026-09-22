@@ -225,15 +225,6 @@ test('oauth code exchange flow', async () => {
 	assert.equal(data.access_token, session.token)
 	assert.equal(data.token_type, 'Bearer')
 	assert.equal(db.oauthCodes.consume(code2), null)
-
-	const badJsonRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/token`, {
-		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		body: '{"invalid_json'
-	})
-	assert.equal(badJsonRes.status, 400)
-	const badJsonData = await badJsonRes.json()
-	assert.match(badJsonData.error, /invalid_request/)
 })
 
 test('well-known oauth discovery endpoints', async () => {
@@ -287,12 +278,12 @@ test('oauth pkce flow with S256', async () => {
 	})
 	const wrongVerifierRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/token`, {
 		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({
+		headers: { 'content-type': 'application/x-www-form-urlencoded' },
+		body: new URLSearchParams({
 			code: codeWrong,
 			redirect_uri: 'https://chatgpt.com/callback',
 			code_verifier: 'wrong-verifier-length-must-be-at-least-43-chars-long'
-		})
+		}).toString()
 	})
 	assert.equal(wrongVerifierRes.status, 400)
 	const wrongData = await wrongVerifierRes.json()
@@ -305,12 +296,12 @@ test('oauth pkce flow with S256', async () => {
 	})
 	const successRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/token`, {
 		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({
+		headers: { 'content-type': 'application/x-www-form-urlencoded' },
+		body: new URLSearchParams({
 			code: codeSuccess,
 			redirect_uri: 'https://chatgpt.com/callback',
 			code_verifier: verifier
-		})
+		}).toString()
 	})
 	assert.equal(successRes.status, 200)
 	const successData = await successRes.json()

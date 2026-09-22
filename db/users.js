@@ -12,7 +12,6 @@ function init () {
 			id TEXT PRIMARY KEY,
 			email TEXT UNIQUE NOT NULL,
 			name TEXT,
-			picture TEXT,
 			created TEXT NOT NULL,
 			updated TEXT NOT NULL
 		);
@@ -21,17 +20,16 @@ function init () {
 }
 
 function upsert (opts = {}) {
-	const { id = randomUUID(), email, name = null, picture = null } = opts
+	const { id = randomUUID(), email, name = null } = opts
 	const now = new Date().toISOString()
 	const normalizedEmail = email.toLowerCase()
 	sqlite.prepare(`
-		INSERT INTO users (id, email, name, picture, created, updated)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO users (id, email, name, created, updated)
+		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(email) DO UPDATE SET
 			name = COALESCE(excluded.name, users.name),
-			picture = COALESCE(excluded.picture, users.picture),
 			updated = excluded.updated
-	`).run(id, normalizedEmail, name, picture, now, now)
+	`).run(id, normalizedEmail, name, now, now)
 	return getByEmail(normalizedEmail)
 }
 

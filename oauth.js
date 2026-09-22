@@ -268,8 +268,7 @@ async function handleCallback (req, res, query) {
 	}
 	const user = db.users.upsert({
 		email,
-		name: googleUser.name || null,
-		picture: googleUser.picture || null
+		name: googleUser.name || null
 	})
 	const ip = getClientIp(req)
 	const ua = req.headers['user-agent'] || null
@@ -309,29 +308,11 @@ async function handleToken (req, res) {
 		return
 	}
 	const rawBody = await getBody(req)
-	let code = null
-	let redirectUri = null
-	let codeVerifier = null
-	const contentType = req.headers['content-type'] || ''
-	if (contentType.includes('application/json')) {
-		let parsed
-		try {
-			parsed = JSON.parse(rawBody)
-		} catch (err) {
-			const parseErr = new Error('invalid_request: Malformed JSON body')
-			parseErr.code = 400
-			throw parseErr
-		}
-		code = parsed?.code
-		redirectUri = parsed?.redirect_uri
-		codeVerifier = parsed?.code_verifier
-	}
-	if (!code) {
-		const params = new URLSearchParams(rawBody)
-		code = params.get('code')
-		redirectUri = redirectUri || params.get('redirect_uri')
-		codeVerifier = codeVerifier || params.get('code_verifier')
-	}
+	const params = new URLSearchParams(rawBody)
+	const code = params.get('code')
+	const redirectUri = params.get('redirect_uri')
+	const codeVerifier = params.get('code_verifier')
+
 	if (!code) {
 		console.warn('[oauth] Token exchange failed: Missing code')
 		res.statusCode = 400

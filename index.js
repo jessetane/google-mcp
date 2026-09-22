@@ -35,10 +35,10 @@ const rpcMethods = {
 	'tools/list': () => {
 		return { tools }
 	},
-	'tools/call': params => {
+	'tools/call': (params, token) => {
 		const name = params?.name
 		const args = { ...params?.arguments }
-		return executeTool(name, args, params?.token)
+		return executeTool(name, args, token)
 	}
 }
 
@@ -76,7 +76,7 @@ async function handleMcp (req, res, token) {
 	rpc.methods = {
 		...rpcMethods,
 		'tools/call': params => {
-			return rpcMethods['tools/call']({ ...params, token })
+			return rpcMethods['tools/call'](params, token)
 		}
 	}
 	const request = await getBody(req)

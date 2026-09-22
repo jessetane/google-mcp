@@ -98,31 +98,15 @@ function getByToken (token) {
 function updateTokens (id, opts = {}) {
 	const { accessToken, expiresAt, refreshToken = null, scope = null } = opts
 	const now = new Date().toISOString()
-	if (refreshToken && scope) {
-		sqlite.prepare(`
-			UPDATE sessions
-			SET access_token = ?, expires_at = ?, refresh_token = ?, scope = ?, updated = ?
-			WHERE id = ?
-		`).run(accessToken, expiresAt, refreshToken, scope, now, id)
-	} else if (refreshToken) {
-		sqlite.prepare(`
-			UPDATE sessions
-			SET access_token = ?, expires_at = ?, refresh_token = ?, updated = ?
-			WHERE id = ?
-		`).run(accessToken, expiresAt, refreshToken, now, id)
-	} else if (scope) {
-		sqlite.prepare(`
-			UPDATE sessions
-			SET access_token = ?, expires_at = ?, scope = ?, updated = ?
-			WHERE id = ?
-		`).run(accessToken, expiresAt, scope, now, id)
-	} else {
-		sqlite.prepare(`
-			UPDATE sessions
-			SET access_token = ?, expires_at = ?, updated = ?
-			WHERE id = ?
-		`).run(accessToken, expiresAt, now, id)
-	}
+	sqlite.prepare(`
+		UPDATE sessions
+		SET access_token = ?,
+			expires_at = ?,
+			refresh_token = COALESCE(?, refresh_token),
+			scope = COALESCE(?, scope),
+			updated = ?
+		WHERE id = ?
+	`).run(accessToken, expiresAt, refreshToken, scope, now, id)
 	return get(id)
 }
 
