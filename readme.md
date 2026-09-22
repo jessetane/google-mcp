@@ -5,13 +5,7 @@ MCP proxy for Google HTTP APIs.
 Gemini on the web is limited and lacks the power and flexibility of a standalone agent. Other frontier platforms may have "official" Google connectors but they are either paid-only, read-only or don't cover enough surface area to be truly useful.
 
 ## How
-
-* Handles OAuth2 sign-in, exchanges codes for Google tokens, and saves them locally in SQLite (`data.db`).  
-* Supports both **full read/write** and **read-only** modes via selective scopes.  
-* Issues an internal session token passed via `Authorization: Bearer <token>` to authenticate MCP calls.  
-* Forwards requests directly to Google endpoints under `*.googleapis.com`, auto-refreshing expired tokens on demand.  
-* SSRF protected: requests cannot target non-Google endpoints.  
-* All data is stored unencrypted in local SQLite (`0600` permissions). Anyone with access to the host or database file can access stored tokens.  
+Oauth proxy handles Google API scoping and token lifecycle, a single "dumb" MCP tool allows agents to leverage their existing Google HTTP API knowledge.
 
 ## Setup
 A Google Cloud project with OAuth credentials is required:
