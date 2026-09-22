@@ -5,11 +5,128 @@ export {
 	proxyGoogleApi,
 	getUserInfo,
 	readResponseBody,
-	isGoogleApiUrl
+	isGoogleApiUrl,
+	baseScopes,
+	services,
+	buildScopesFromSelection
 }
 
 const clientId = process.env.GOOGLE_CLIENT_ID
 const clientSecret = process.env.GOOGLE_CLIENT_SECRET
+
+const baseScopes = [
+	'https://www.googleapis.com/auth/userinfo.email',
+	'https://www.googleapis.com/auth/userinfo.profile'
+]
+
+const services = {
+	drive: {
+		id: 'drive',
+		name: 'Google Drive',
+		ro: ['https://www.googleapis.com/auth/drive.readonly'],
+		rw: ['https://www.googleapis.com/auth/drive']
+	},
+	docs: {
+		id: 'docs',
+		name: 'Google Docs',
+		ro: ['https://www.googleapis.com/auth/documents.readonly'],
+		rw: ['https://www.googleapis.com/auth/documents']
+	},
+	sheets: {
+		id: 'sheets',
+		name: 'Google Sheets',
+		ro: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+		rw: ['https://www.googleapis.com/auth/spreadsheets']
+	},
+	slides: {
+		id: 'slides',
+		name: 'Google Slides',
+		ro: ['https://www.googleapis.com/auth/presentations.readonly'],
+		rw: ['https://www.googleapis.com/auth/presentations']
+	},
+	forms: {
+		id: 'forms',
+		name: 'Google Forms',
+		ro: ['https://www.googleapis.com/auth/forms.body.readonly'],
+		rw: ['https://www.googleapis.com/auth/forms.body']
+	},
+	calendar: {
+		id: 'calendar',
+		name: 'Google Calendar',
+		ro: ['https://www.googleapis.com/auth/calendar.readonly'],
+		rw: ['https://www.googleapis.com/auth/calendar']
+	},
+	tasks: {
+		id: 'tasks',
+		name: 'Google Tasks',
+		ro: ['https://www.googleapis.com/auth/tasks.readonly'],
+		rw: ['https://www.googleapis.com/auth/tasks']
+	},
+	contacts: {
+		id: 'contacts',
+		name: 'Google Contacts',
+		ro: ['https://www.googleapis.com/auth/contacts.readonly'],
+		rw: ['https://www.googleapis.com/auth/contacts']
+	},
+	youtube: {
+		id: 'youtube',
+		name: 'YouTube',
+		ro: ['https://www.googleapis.com/auth/youtube.readonly'],
+		rw: ['https://www.googleapis.com/auth/youtube']
+	},
+	gmail: {
+		id: 'gmail',
+		name: 'Gmail',
+		ro: ['https://www.googleapis.com/auth/gmail.readonly'],
+		rw: ['https://mail.google.com/']
+	},
+	photos: {
+		id: 'photos',
+		name: 'Google Photos',
+		ro: ['https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata'],
+		rw: [
+			'https://www.googleapis.com/auth/photoslibrary.appendonly',
+			'https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata'
+		]
+	},
+	meet: {
+		id: 'meet',
+		name: 'Google Meet',
+		ro: ['https://www.googleapis.com/auth/meetings.space.readonly'],
+		rw: ['https://www.googleapis.com/auth/meetings.space.created']
+	},
+	chat: {
+		id: 'chat',
+		name: 'Google Chat',
+		ro: [
+			'https://www.googleapis.com/auth/chat.spaces.readonly',
+			'https://www.googleapis.com/auth/chat.messages.readonly'
+		],
+		rw: [
+			'https://www.googleapis.com/auth/chat.spaces',
+			'https://www.googleapis.com/auth/chat.messages'
+		]
+	},
+	keep: {
+		id: 'keep',
+		name: 'Google Keep',
+		enterprise: true,
+		ro: ['https://www.googleapis.com/auth/keep.readonly'],
+		rw: ['https://www.googleapis.com/auth/keep']
+	}
+}
+
+function buildScopesFromSelection (selectedServices = [], writeServiceIds = []) {
+	const scopeSet = new Set(baseScopes)
+	const writeSet = new Set(writeServiceIds)
+	for (const id of selectedServices) {
+		const svc = services[id]
+		if (!svc) continue
+		const scopes = writeSet.has(id) ? svc.rw : svc.ro
+		for (const s of scopes) scopeSet.add(s)
+	}
+	return Array.from(scopeSet).join(' ')
+}
 
 async function refreshGoogleAccessToken (session) {
 	const params = new URLSearchParams({
