@@ -103,11 +103,6 @@
 				cursor: not-allowed;
 			}
 
-			.restricted-mark {
-				color: #d9381e;
-				font-weight: bold;
-			}
-
 			.workspace-mark {
 				color: #1a73e8;
 				font-weight: bold;
@@ -158,8 +153,7 @@
 					<tbody id="service-rows"></tbody>
 				</table>
 				<div class="footnote">
-					<div><span class="restricted-mark">*</span> Restricted scopes (Gmail, Photos) require sensitive verification in Google Cloud.</div>
-					<div><span class="workspace-mark">**</span> Enterprise / Google Workspace accounts only (Google Keep, Meet, Chat). Requests from personal (@gmail.com) accounts will fail if selected.</div>
+					<span class="workspace-mark">**</span> Enterprise / Google Workspace accounts only (Google Keep, Meet, Chat). Requests from personal (@gmail.com) accounts will fail if selected.
 				</div>
 				<button type="submit">Continue to Google</button>
 			</form>
@@ -179,7 +173,6 @@
 				const services = document.querySelectorAll('input[name="services"]')
 				for (const s of services) {
 					const id = s.value
-					const isRestricted = s.getAttribute('data-restricted') === '1'
 					const isWorkspace = s.getAttribute('data-workspace') === '1'
 					const w = document.getElementById('wr_' + id)
 					if (kind === 'none') {
@@ -189,7 +182,7 @@
 							w.disabled = true
 						}
 					} else if (kind === 'recommended') {
-						s.checked = !isRestricted && !isWorkspace
+						s.checked = !isWorkspace
 						if (w) {
 							w.checked = false
 							w.disabled = !s.checked
@@ -228,20 +221,13 @@
 					inputSvc.name = 'services'
 					inputSvc.id = 'svc_' + s.id
 					inputSvc.value = s.id
-					inputSvc.setAttribute('data-restricted', s.restricted ? '1' : '0')
 					inputSvc.setAttribute('data-workspace', s.workspace ? '1' : '0')
-					inputSvc.checked = !s.restricted && !s.workspace
+					inputSvc.checked = !s.workspace
 					inputSvc.addEventListener('change', function () {
 						onServiceToggle(s.id)
 					})
 					const spanName = document.createElement('span')
 					spanName.textContent = s.name
-					if (s.restricted) {
-						const mark = document.createElement('span')
-						mark.className = 'restricted-mark'
-						mark.textContent = ' *'
-						spanName.appendChild(mark)
-					}
 					if (s.workspace) {
 						const mark = document.createElement('span')
 						mark.className = 'workspace-mark'

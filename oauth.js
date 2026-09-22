@@ -85,6 +85,21 @@ const services = {
 		ro: ['https://www.googleapis.com/auth/youtube.readonly'],
 		rw: ['https://www.googleapis.com/auth/youtube']
 	},
+	gmail: {
+		id: 'gmail',
+		name: 'Gmail',
+		ro: ['https://www.googleapis.com/auth/gmail.readonly'],
+		rw: ['https://mail.google.com/']
+	},
+	photos: {
+		id: 'photos',
+		name: 'Google Photos',
+		ro: ['https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata'],
+		rw: [
+			'https://www.googleapis.com/auth/photoslibrary.appendonly',
+			'https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata'
+		]
+	},
 	keep: {
 		id: 'keep',
 		name: 'Google Keep',
@@ -110,23 +125,6 @@ const services = {
 		rw: [
 			'https://www.googleapis.com/auth/chat.spaces',
 			'https://www.googleapis.com/auth/chat.messages'
-		]
-	},
-	gmail: {
-		id: 'gmail',
-		name: 'Gmail',
-		restricted: true,
-		ro: ['https://www.googleapis.com/auth/gmail.readonly'],
-		rw: ['https://mail.google.com/']
-	},
-	photos: {
-		id: 'photos',
-		name: 'Google Photos',
-		restricted: true,
-		ro: ['https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata'],
-		rw: [
-			'https://www.googleapis.com/auth/photoslibrary.appendonly',
-			'https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata'
 		]
 	}
 }
@@ -284,7 +282,6 @@ async function handleAuthorize (req, res, query) {
 	const clientServices = Object.values(services).map(s => ({
 		id: s.id,
 		name: s.name,
-		restricted: Boolean(s.restricted),
 		workspace: Boolean(s.workspace)
 	}))
 	const initData = {
