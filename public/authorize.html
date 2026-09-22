@@ -158,7 +158,7 @@
 					<tbody id="service-rows"></tbody>
 				</table>
 				<div class="footnote">
-					<div><span class="restricted-mark">*</span> Restricted scopes (Gmail, Photos) trigger Google unverified app warnings unless published or configured with test users.</div>
+					<div><span class="restricted-mark">*</span> Restricted scopes (Gmail, Photos) require sensitive verification in Google Cloud. Testing apps will always show an unverified app screen until verified by Google.</div>
 					<div><span class="workspace-mark">**</span> Enterprise / Google Workspace accounts only (Google Keep, Meet, Chat). Requests from personal (@gmail.com) accounts will fail if selected.</div>
 				</div>
 				<button type="submit">Continue to Google</button>
@@ -201,8 +201,7 @@
 							w.disabled = false
 						}
 					} else if (kind === 'allwrite') {
-						s.checked = true
-						if (w) {
+						if (s.checked && w) {
 							w.checked = true
 							w.disabled = false
 						}

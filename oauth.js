@@ -79,6 +79,12 @@ const services = {
 		ro: ['https://www.googleapis.com/auth/contacts.readonly'],
 		rw: ['https://www.googleapis.com/auth/contacts']
 	},
+	youtube: {
+		id: 'youtube',
+		name: 'YouTube',
+		ro: ['https://www.googleapis.com/auth/youtube.readonly'],
+		rw: ['https://www.googleapis.com/auth/youtube']
+	},
 	keep: {
 		id: 'keep',
 		name: 'Google Keep',
@@ -122,12 +128,6 @@ const services = {
 			'https://www.googleapis.com/auth/photoslibrary.appendonly',
 			'https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata'
 		]
-	},
-	youtube: {
-		id: 'youtube',
-		name: 'YouTube',
-		ro: ['https://www.googleapis.com/auth/youtube.readonly'],
-		rw: ['https://www.googleapis.com/auth/youtube']
 	}
 }
 
