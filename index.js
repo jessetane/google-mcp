@@ -23,7 +23,7 @@ const rpcMethods = {
 		return {
 			protocolVersion: '2024-11-05',
 			capabilities: { tools: { listChanged: false } },
-			serverInfo: { name: 'gdrive-mcp', version: '1.0.0' }
+			serverInfo: { name: 'google-mcp', version: '1.0.0' }
 		}
 	},
 	'notifications/initialized': () => {
@@ -102,7 +102,7 @@ const server = http.createServer(async (req, res) => {
 		if (pathname === '/') {
 			res.statusCode = 200
 			res.setHeader('content-type', 'text/plain; charset=utf-8')
-			res.end('gdrive-mcp\n\nendpoints:\n  POST /mcp\n  GET  /oauth/authorize\n  POST /oauth/token\n')
+			res.end('google-mcp\n\nendpoints:\n  POST /mcp\n  GET  /oauth/authorize\n  POST /oauth/token\n')
 			return
 		}
 		if (pathname === '/api/health') {
@@ -126,6 +126,10 @@ const server = http.createServer(async (req, res) => {
 		}
 		if (pathname === '/oauth/authorize') {
 			await oauth.handleAuthorize(req, res, query)
+			return
+		}
+		if (pathname === '/oauth/authorize/consent') {
+			await oauth.handleAuthorizeConsent(req, res)
 			return
 		}
 		if (pathname === '/oauth/callback') {
@@ -154,6 +158,6 @@ const server = http.createServer(async (req, res) => {
 
 if (process.env.NODE_ENV !== 'test') {
 	server.listen(port, host, () => {
-		console.log(`gdrive-mcp listening on ${host}:${port}`)
+		console.log(`google-mcp listening on ${host}:${port}`)
 	})
 }

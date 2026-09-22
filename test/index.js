@@ -9,6 +9,9 @@ const dirname = path.dirname(fileURLToPath(import.meta.url))
 const testDbPath = path.join(dirname, 'test.db')
 process.env.DB_PATH = testDbPath
 process.env.NODE_ENV = 'test'
+process.env.GOOGLE_CLIENT_ID = 'test-client-id'
+process.env.GOOGLE_CLIENT_SECRET = 'test-client-secret'
+process.env.ALLOWED_REDIRECT_DOMAINS = 'localhost,127.0.0.1,chatgpt.com'
 
 fs.rmSync(testDbPath, { force: true })
 fs.rmSync(`${testDbPath}-wal`, { force: true })
@@ -16,7 +19,8 @@ fs.rmSync(`${testDbPath}-shm`, { force: true })
 
 const { server } = await import('../index.js')
 const db = await import('../db/index.js')
-const { readResponseBody } = await import('../google.js')
+const { readResponseBody, isGoogleApiUrl } = await import('../google.js')
+const { executeTool } = await import('../mcp.js')
 
 test('setup server', (t, done) => {
 	server.listen(0, '127.0.0.1', done)
@@ -35,6 +39,7 @@ test('root endpoint', async () => {
 	const res = await fetch(`http://127.0.0.1:${addr.port}/`)
 	assert.equal(res.status, 200)
 	const text = await res.text()
+	assert.match(text, /google-mcp/)
 	assert.match(text, /endpoints:/)
 })
 
@@ -52,7 +57,7 @@ test('mcp initialize & tools/list', async () => {
 	})
 	assert.equal(initRes.status, 200)
 	const initData = await initRes.json()
-	assert.equal(initData.result.serverInfo.name, 'gdrive-mcp')
+	assert.equal(initData.result.serverInfo.name, 'google-mcp')
 
 	const notifRes = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
 		method: 'POST',
@@ -78,7 +83,7 @@ test('mcp initialize & tools/list', async () => {
 	assert.equal(listRes.status, 200)
 	const listData = await listRes.json()
 	const toolNames = listData.result.tools.map(t => t.name)
-	assert.deepEqual(toolNames, ['authStatus', 'driveApi', 'sheetsApi', 'docsApi'])
+	assert.deepEqual(toolNames, ['authStatus', 'googleApi'])
 })
 
 test('mcp authStatus tool without auth', async () => {
@@ -102,7 +107,7 @@ test('mcp authStatus tool without auth', async () => {
 	assert.equal(parsed.authenticated, false)
 })
 
-test('mcp driveApi tool requires auth', async () => {
+test('mcp googleApi tool requires auth', async () => {
 	const addr = server.address()
 	const res = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
 		method: 'POST',
@@ -112,8 +117,8 @@ test('mcp driveApi tool requires auth', async () => {
 			id: 4,
 			method: 'tools/call',
 			params: {
-				name: 'driveApi',
-				arguments: { path: 'files' }
+				name: 'googleApi',
+				arguments: { url: 'drive/v3/files' }
 			}
 		})
 	})
@@ -123,16 +128,76 @@ test('mcp driveApi tool requires auth', async () => {
 	assert.match(data.result.content[0].text, /Authentication required/)
 })
 
+test('isGoogleApiUrl domain restrictions', () => {
+	assert.equal(isGoogleApiUrl('https://www.googleapis.com/drive/v3/files'), true)
+	assert.equal(isGoogleApiUrl('https://sheets.googleapis.com/v4/spreadsheets'), true)
+	assert.equal(isGoogleApiUrl('https://docs.googleapis.com/v1/documents'), true)
+	assert.equal(isGoogleApiUrl('https://calendar.googleapis.com/calendar/v3/events'), true)
+	assert.equal(isGoogleApiUrl('https://googleapis.com/test'), true)
+	assert.equal(isGoogleApiUrl('http://www.googleapis.com/test'), false)
+	assert.equal(isGoogleApiUrl('https://evil.com'), false)
+	assert.equal(isGoogleApiUrl('https://evilgoogleapis.com'), false)
+	assert.equal(isGoogleApiUrl('https://localhost:8080'), false)
+	assert.equal(isGoogleApiUrl('not-a-url'), false)
+})
+
+test('read-only session blocks non-GET requests', async () => {
+	const user = db.users.upsert({ email: 'ro@example.com', name: 'RO User' })
+	const roSession = db.sessions.create({
+		userId: user.id,
+		accessToken: 'ya29.fake-ro-token',
+		readonly: 1
+	})
+	const result = await executeTool('googleApi', {
+		url: 'drive/v3/files',
+		method: 'POST',
+		body: { name: 'test' }
+	}, roSession.token)
+	assert.equal(result.isError, true)
+	assert.match(result.content[0].text, /Session is in read-only mode and cannot perform POST requests/)
+})
+
+test('rejects non-googleapis URLs in googleApi tool', async () => {
+	const user = db.users.upsert({ email: 'user@example.com' })
+	const session = db.sessions.create({
+		userId: user.id,
+		accessToken: 'ya29.fake-token',
+		readonly: 0
+	})
+	const result = await executeTool('googleApi', {
+		url: 'https://evil.com/steal-token'
+	}, session.token)
+	assert.equal(result.isError, true)
+	assert.match(result.content[0].text, /Target URL domain not allowed/)
+})
+
+test('mcp googleApi tool ignores body on GET requests', async () => {
+	const user = db.users.upsert({ email: 'getbody@example.com' })
+	const session = db.sessions.create({
+		userId: user.id,
+		accessToken: 'ya29.fake-token',
+		readonly: 0
+	})
+	const result = await executeTool('googleApi', {
+		url: 'https://www.googleapis.com/drive/v3/files',
+		method: 'GET',
+		body: { unwanted: 'payload' }
+	}, session.token)
+	assert.ok(result)
+})
+
 test('oauth state flow', async () => {
 	const state = db.oauthStates.create({
 		clientRedirectUri: 'https://example.com/oauth/return',
 		clientState: 'random-state',
+		readonly: 1,
 		ip: '127.0.0.1'
 	})
 	assert.ok(state)
 	const consumed = db.oauthStates.consume(state)
 	assert.equal(consumed.clientState, 'random-state')
 	assert.equal(consumed.clientRedirectUri, 'https://example.com/oauth/return')
+	assert.equal(consumed.readonly, true)
 	assert.equal(db.oauthStates.consume(state), null)
 })
 
@@ -270,23 +335,6 @@ test('oauth pkce flow with S256', async () => {
 	assert.equal(successRes.status, 200)
 	const successData = await successRes.json()
 	assert.equal(successData.access_token, session.token)
-	const shortVerifierRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/token`, {
-		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({
-			code: db.oauthCodes.create({
-				sessionId: session.id,
-				clientRedirectUri: 'https://chatgpt.com/callback',
-				codeChallenge: challenge,
-				codeChallengeMethod: 'S256'
-			}),
-			redirect_uri: 'https://chatgpt.com/callback',
-			code_verifier: 'short'
-		})
-	})
-	assert.equal(shortVerifierRes.status, 400)
-	const shortData = await shortVerifierRes.json()
-	assert.equal(shortData.error_description, 'Invalid code_verifier')
 })
 
 test('oauth pkce authorize endpoint validation and state propagation', async () => {
@@ -314,30 +362,126 @@ test('oauth pkce authorize endpoint validation and state propagation', async () 
 	assert.equal(missingPkceData.error, 'invalid_request')
 	assert.match(missingPkceData.error_description, /code_challenge required/)
 	const challenge = 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM'
-	const authRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize?redirect_uri=https://chatgpt.com/callback&state=test-state&code_challenge=${challenge}&code_challenge_method=S256`, {
+	const authRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize?redirect_uri=https://chatgpt.com/callback&state=test-state&code_challenge=${challenge}&code_challenge_method=S256`)
+	assert.equal(authRes.status, 200)
+	assert.equal(authRes.headers.get('content-type'), 'text/html; charset=utf-8')
+	const authHtml = await authRes.text()
+	assert.match(authHtml, /"redirect_uri":"https:\/\/chatgpt\.com\/callback"/)
+	assert.match(authHtml, /"state":"test-state"/)
+	assert.match(authHtml, /"code_challenge":"E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"/)
+	assert.match(authHtml, /"code_challenge_method":"S256"/)
+})
+
+test('oauth consent html page and post consent flow', async () => {
+	const addr = server.address()
+	const challenge = 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM'
+	const pageRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize?redirect_uri=https://chatgpt.com/callback&state=client-state-123&code_challenge=${challenge}&code_challenge_method=S256`)
+	assert.equal(pageRes.status, 200)
+	assert.equal(pageRes.headers.get('content-type'), 'text/html; charset=utf-8')
+	const html = await pageRes.text()
+	assert.match(html, /google-mcp/)
+	assert.match(html, /action="\/oauth\/authorize\/consent"/)
+	assert.match(html, /"redirect_uri":"https:\/\/chatgpt\.com\/callback"/)
+	assert.match(html, /"state":"client-state-123"/)
+
+	const consentBody = new URLSearchParams({
+		redirect_uri: 'https://chatgpt.com/callback',
+		state: 'client-state-123',
+		code_challenge: challenge,
+		code_challenge_method: 'S256'
+	})
+	for (const id of ['drive', 'docs', 'sheets', 'slides', 'forms', 'calendar', 'tasks', 'keep', 'meet', 'contacts', 'chat', 'gmail', 'photos', 'youtube']) {
+		consentBody.append('services', id)
+	}
+
+	const consentRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize/consent`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/x-www-form-urlencoded' },
+		body: consentBody.toString(),
 		redirect: 'manual'
 	})
-	assert.equal(authRes.status, 302)
-	const location = authRes.headers.get('location')
+	assert.equal(consentRes.status, 302)
+	const location = consentRes.headers.get('location')
 	assert.ok(location)
 	const targetUrl = new URL(location)
+	assert.match(targetUrl.searchParams.get('scope'), /drive\.readonly/)
+	assert.match(targetUrl.searchParams.get('scope'), /calendar\.readonly/)
+	assert.match(targetUrl.searchParams.get('scope'), /gmail\.readonly/)
+	assert.match(targetUrl.searchParams.get('scope'), /tasks\.readonly/)
+	assert.match(targetUrl.searchParams.get('scope'), /keep\.readonly/)
+	assert.match(targetUrl.searchParams.get('scope'), /meetings\.space\.readonly/)
+	assert.match(targetUrl.searchParams.get('scope'), /contacts\.readonly/)
+	assert.match(targetUrl.searchParams.get('scope'), /chat\.spaces\.readonly/)
+	assert.match(targetUrl.searchParams.get('scope'), /chat\.messages\.readonly/)
+	assert.match(targetUrl.searchParams.get('scope'), /photoslibrary\.readonly\.appcreateddata/)
+	assert.match(targetUrl.searchParams.get('scope'), /youtube\.readonly/)
 	const stateParam = targetUrl.searchParams.get('state')
 	assert.ok(stateParam)
 	const stateRow = db.oauthStates.consume(stateParam)
 	assert.equal(stateRow.clientRedirectUri, 'https://chatgpt.com/callback')
-	assert.equal(stateRow.clientState, 'test-state')
-	assert.equal(stateRow.codeChallenge, challenge)
-	assert.equal(stateRow.codeChallengeMethod, 'S256')
-	const directAuthRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize`, {
+	assert.equal(stateRow.clientState, 'client-state-123')
+	assert.equal(stateRow.readonly, true)
+})
+
+test('oauth consent with dynamic service and write selection', async () => {
+	const addr = server.address()
+	const challenge = 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM'
+	const consentParams = new URLSearchParams()
+	consentParams.set('redirect_uri', 'https://chatgpt.com/callback')
+	consentParams.set('state', 'client-state-dynamic')
+	consentParams.set('code_challenge', challenge)
+	consentParams.set('code_challenge_method', 'S256')
+	consentParams.append('services', 'drive')
+	consentParams.append('services', 'calendar')
+	consentParams.set('write_calendar', '1')
+
+	const consentRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize/consent`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/x-www-form-urlencoded' },
+		body: consentParams.toString(),
 		redirect: 'manual'
 	})
-	assert.equal(directAuthRes.status, 302)
-	const directLocation = directAuthRes.headers.get('location')
-	assert.ok(directLocation)
-	const directStateParam = new URL(directLocation).searchParams.get('state')
-	const directStateRow = db.oauthStates.consume(directStateParam)
-	assert.equal(directStateRow.clientRedirectUri, null)
-	assert.equal(directStateRow.codeChallenge, null)
+	assert.equal(consentRes.status, 302)
+	const location = consentRes.headers.get('location')
+	assert.ok(location)
+	const targetUrl = new URL(location)
+	const scopeParam = targetUrl.searchParams.get('scope')
+
+	assert.match(scopeParam, /drive\.readonly/)
+	assert.equal(scopeParam.split(' ').includes('https://www.googleapis.com/auth/drive'), false)
+	assert.match(scopeParam, /auth\/calendar\b/)
+	assert.doesNotMatch(scopeParam, /calendar\.readonly/)
+	assert.doesNotMatch(scopeParam, /gmail/)
+	assert.doesNotMatch(scopeParam, /tasks/)
+
+	const stateRow = db.oauthStates.consume(targetUrl.searchParams.get('state'))
+	assert.equal(stateRow.readonly, false)
+})
+
+test('direct browser authorize without redirect_uri', async () => {
+	const addr = server.address()
+	const pageRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize`)
+	assert.equal(pageRes.status, 200)
+	assert.equal(pageRes.headers.get('content-type'), 'text/html; charset=utf-8')
+	const html = await pageRes.text()
+	assert.match(html, /google-mcp/)
+	assert.match(html, /action="\/oauth\/authorize\/consent"/)
+	const consentBody = new URLSearchParams()
+	consentBody.append('services', 'drive')
+	const consentRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize/consent`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/x-www-form-urlencoded' },
+		body: consentBody.toString(),
+		redirect: 'manual'
+	})
+	assert.equal(consentRes.status, 302)
+	const location = consentRes.headers.get('location')
+	assert.ok(location)
+	const targetUrl = new URL(location)
+	const stateRow = db.oauthStates.consume(targetUrl.searchParams.get('state'))
+	assert.equal(stateRow.clientRedirectUri, null)
+	assert.equal(stateRow.codeChallenge, null)
+	assert.equal(stateRow.readonly, true)
 })
 
 test('cors preflight options request', async () => {

@@ -8,108 +8,48 @@ export {
 const tools = [
 	{
 		name: 'authStatus',
-		description: 'Check if the current request has a valid Google authentication token.',
+		description: 'Check if the current request has a valid Google authentication token, identity, and read-only status.',
 		inputSchema: {
 			type: 'object',
 			properties: {}
 		}
 	},
 	{
-		name: 'driveApi',
-		description: 'Dumb proxy to Google Drive API v3 (e.g. GET /files, GET /files/{fileId}, POST /files).',
+		name: 'googleApi',
+		description: 'Make HTTP requests directly to Google APIs (e.g. Drive, Docs, Sheets, Calendar, Gmail, Tasks) restricted to *.googleapis.com. Automatically attaches the user\'s Google OAuth Bearer token.',
 		inputSchema: {
 			type: 'object',
 			properties: {
-				path: {
+				url: {
 					type: 'string',
-					description: 'Path relative to https://www.googleapis.com/drive/v3/ (e.g. "files", "files/FILE_ID").'
+					description: 'Full https://*.googleapis.com URL or relative path (e.g. "drive/v3/files", "calendar/v3/calendars/primary/events", or "https://sheets.googleapis.com/v4/spreadsheets/ID").'
 				},
 				method: {
 					type: 'string',
-					description: 'HTTP method (GET, POST, PATCH, PUT, DELETE). Default: GET.'
+					description: 'HTTP method (GET, POST, PUT, PATCH, DELETE). Defaults to GET.'
 				},
 				query: {
 					type: 'object',
-					description: 'Query parameters (e.g. { q: "name contains \'Recipe\'" }).'
+					description: 'Query parameters as key-value pairs.'
 				},
 				body: {
-					type: 'object',
-					description: 'Request JSON payload for POST/PATCH/PUT.'
+					type: ['object', 'string'],
+					description: 'JSON body object or string payload for POST/PUT/PATCH requests.'
 				},
 				headers: {
 					type: 'object',
-					description: 'Extra HTTP headers to send (e.g. { "accept": "application/pdf" } for file export).'
+					description: 'Optional additional HTTP headers to include with the request.'
 				}
 			},
-			required: ['path']
-		}
-	},
-	{
-		name: 'sheetsApi',
-		description: 'Dumb proxy to Google Sheets API v4 (e.g. GET /spreadsheets/{id}/values/{range}, POST /spreadsheets/{id}/values/{range}:append).',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				path: {
-					type: 'string',
-					description: 'Path relative to https://sheets.googleapis.com/v4/ (e.g. "spreadsheets/ID/values/Sheet1!A1:D10").'
-				},
-				method: {
-					type: 'string',
-					description: 'HTTP method (GET, POST, PUT, DELETE). Default: GET.'
-				},
-				query: {
-					type: 'object',
-					description: 'Query parameters (e.g. { valueInputOption: "USER_ENTERED" }).'
-				},
-				body: {
-					type: 'object',
-					description: 'Request JSON payload.'
-				},
-				headers: {
-					type: 'object',
-					description: 'Extra HTTP headers to send.'
-				}
-			},
-			required: ['path']
-		}
-	},
-	{
-		name: 'docsApi',
-		description: 'Dumb proxy to Google Docs API v1 (e.g. GET /documents/{id}, POST /documents/{id}:batchUpdate).',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				path: {
-					type: 'string',
-					description: 'Path relative to https://docs.googleapis.com/v1/ (e.g. "documents/DOCUMENT_ID").'
-				},
-				method: {
-					type: 'string',
-					description: 'HTTP method (GET, POST). Default: GET.'
-				},
-				query: {
-					type: 'object',
-					description: 'Query parameters.'
-				},
-				body: {
-					type: 'object',
-					description: 'Request JSON payload.'
-				},
-				headers: {
-					type: 'object',
-					description: 'Extra HTTP headers to send.'
-				}
-			},
-			required: ['path']
+			required: ['url']
 		}
 	}
 ]
 
 async function executeTool (name, args = {}, token) {
-	let googleToken = null
+	let authInfo = null
 	try {
-		googleToken = await getFreshGoogleToken(token)
+		authInfo = await getFreshGoogleToken(token)
 	} catch (err) {
 		return {
 			isError: true,
@@ -120,6 +60,9 @@ async function executeTool (name, args = {}, token) {
 		}
 	}
 
+	const googleToken = authInfo?.token || null
+	const session = authInfo?.session || null
+
 	if (name === 'authStatus') {
 		if (googleToken) {
 			try {
@@ -127,7 +70,12 @@ async function executeTool (name, args = {}, token) {
 				return {
 					content: [{
 						type: 'text',
-						text: JSON.stringify({ authenticated: true, email: user.email }, null, '\t')
+						text: JSON.stringify({
+							authenticated: true,
+							email: user.email,
+							readonly: session?.readonly ?? false,
+							scope: session?.scope ?? null
+						}, null, '\t')
 					}]
 				}
 			} catch (err) {
@@ -164,18 +112,32 @@ async function executeTool (name, args = {}, token) {
 		}
 	}
 
-	try {
-		let baseUrl
-		if (name === 'driveApi') baseUrl = 'https://www.googleapis.com/drive/v3'
-		else if (name === 'sheetsApi') baseUrl = 'https://sheets.googleapis.com/v4'
-		else if (name === 'docsApi') baseUrl = 'https://docs.googleapis.com/v1'
-		else throw new Error(`Unknown tool: ${name}`)
+	if (name !== 'googleApi') {
+		return {
+			isError: true,
+			content: [{
+				type: 'text',
+				text: `Unknown tool: ${name}`
+			}]
+		}
+	}
 
+	const method = (args.method || 'GET').toUpperCase()
+	if (session?.readonly && method !== 'GET' && method !== 'HEAD') {
+		return {
+			isError: true,
+			content: [{
+				type: 'text',
+				text: `Operation rejected: Session is in read-only mode and cannot perform ${method} requests.`
+			}]
+		}
+	}
+
+	try {
 		const result = await proxyGoogleApi({
 			token: googleToken,
-			baseUrl,
-			path: args.path,
-			method: args.method || 'GET',
+			url: args.url,
+			method,
 			query: args.query,
 			body: args.body,
 			headers: args.headers

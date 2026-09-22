@@ -19,6 +19,8 @@ function init () {
 			refresh_token TEXT,
 			access_token TEXT,
 			expires_at INTEGER,
+			scope TEXT,
+			readonly INTEGER NOT NULL DEFAULT 0,
 			ip TEXT,
 			ua TEXT,
 			created TEXT NOT NULL,
@@ -28,6 +30,9 @@ function init () {
 		CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
 		CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 	`)
+	const columns = sqlite.prepare('PRAGMA table_info(sessions)').all().map(c => c.name)
+	if (!columns.includes('scope')) sqlite.exec('ALTER TABLE sessions ADD COLUMN scope TEXT;')
+	if (!columns.includes('readonly')) sqlite.exec('ALTER TABLE sessions ADD COLUMN readonly INTEGER NOT NULL DEFAULT 0;')
 }
 
 function formatSession (row) {
@@ -39,6 +44,8 @@ function formatSession (row) {
 		refreshToken: row.refresh_token,
 		accessToken: row.access_token,
 		expiresAt: row.expires_at,
+		scope: row.scope,
+		readonly: Boolean(row.readonly),
 		ip: row.ip,
 		ua: row.ua,
 		created: row.created,
@@ -56,15 +63,17 @@ function create (opts = {}) {
 		refreshToken = null,
 		accessToken = null,
 		expiresAt = null,
+		scope = null,
+		readonly = 0,
 		ip = null,
 		ua = null
 	} = opts
 	pruneExpired()
 	const now = new Date().toISOString()
 	sqlite.prepare(`
-		INSERT INTO sessions (id, user_id, token, refresh_token, access_token, expires_at, ip, ua, created, updated)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`).run(id, userId, token, refreshToken, accessToken, expiresAt, ip, ua, now, now)
+		INSERT INTO sessions (id, user_id, token, refresh_token, access_token, expires_at, scope, readonly, ip, ua, created, updated)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`).run(id, userId, token, refreshToken, accessToken, expiresAt, scope, readonly ? 1 : 0, ip, ua, now, now)
 	return get(id)
 }
 
@@ -91,14 +100,26 @@ function getByToken (token) {
 }
 
 function updateTokens (id, opts = {}) {
-	const { accessToken, expiresAt, refreshToken = null } = opts
+	const { accessToken, expiresAt, refreshToken = null, scope = null } = opts
 	const now = new Date().toISOString()
-	if (refreshToken) {
+	if (refreshToken && scope) {
+		sqlite.prepare(`
+			UPDATE sessions
+			SET access_token = ?, expires_at = ?, refresh_token = ?, scope = ?, updated = ?
+			WHERE id = ?
+		`).run(accessToken, expiresAt, refreshToken, scope, now, id)
+	} else if (refreshToken) {
 		sqlite.prepare(`
 			UPDATE sessions
 			SET access_token = ?, expires_at = ?, refresh_token = ?, updated = ?
 			WHERE id = ?
 		`).run(accessToken, expiresAt, refreshToken, now, id)
+	} else if (scope) {
+		sqlite.prepare(`
+			UPDATE sessions
+			SET access_token = ?, expires_at = ?, scope = ?, updated = ?
+			WHERE id = ?
+		`).run(accessToken, expiresAt, scope, now, id)
 	} else {
 		sqlite.prepare(`
 			UPDATE sessions
@@ -109,7 +130,7 @@ function updateTokens (id, opts = {}) {
 	return get(id)
 }
 
-function pruneExpired (maxAgeMs = 30 * 24 * 60 * 60 * 1000) {
+function pruneExpired (maxAgeMs = 60 * 24 * 60 * 60 * 1000) {
 	const minDate = new Date(Date.now() - maxAgeMs).toISOString()
 	sqlite.prepare('DELETE FROM sessions WHERE updated < ?').run(minDate)
 	sqlite.prepare('DELETE FROM oauth_states WHERE created_at < ?').run(Date.now() - (15 * 60 * 1000))

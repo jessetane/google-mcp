@@ -1,25 +1,33 @@
-# gdrive-mcp
-MCP proxy for Google Drive, Docs and Sheets HTTP APIs.  
+# google-mcp
+MCP proxy for Google APIs (Drive, Docs, Sheets, Calendar, and more) restricted to `*.googleapis.com`.  
 
 ## Why
-Google's web assistant is OK but lacks the power and flexibility of a standalone agent, Claude has Drive but not Sheets, and ChatGPT requires a paid account.  
+Google's web assistant is limited and lacks the flexibility of a standalone agent. Other assistants have selective access (e.g. Drive but not Sheets or Calendar). `google-mcp` provides an authenticated, direct HTTP gateway to Google's REST APIs with optional read-only scoping.  
 
 ## How
 
 * Handles OAuth2 sign-in, exchanges codes for Google tokens, and saves them locally in SQLite (`data.db`).  
+* Supports both **full read/write** and **read-only** modes via selective scopes.  
 * Issues an internal session token passed via `Authorization: Bearer <token>` to authenticate MCP calls.  
-* Forwards Drive, Sheets, and Docs API requests directly to Google's endpoints, refreshing expired Google tokens on demand.  
-* All data is stored unencrypted in local SQLite. Anyone with access to the host or database file can access stored tokens.  
+* Forwards requests directly to Google endpoints under `*.googleapis.com`, auto-refreshing expired tokens on demand.  
+* SSRF protected: requests cannot target non-Google endpoints.  
+* All data is stored unencrypted in local SQLite (`0600` permissions). Anyone with access to the host or database file can access stored tokens.  
 
 ## Setup
 A Google Cloud project with OAuth credentials is required:
 
-1. Enable the Google Drive, Docs and Sheets APIs in your Google Cloud project.  
+1. Enable the Google APIs you wish to use (Google Drive, Docs, Sheets, Slides, Forms, Calendar, Tasks, Keep, Meet, Gmail, Chat, People / Contacts, Photos, YouTube Data API v3, etc.) in your Google Cloud project.  
 2. Configure the OAuth consent screen.  
 3. Create an OAuth 2.0 Client ID (Web application) and add `<APP_URL>/oauth/callback` to Authorized redirect URIs.  
 4. Copy the Client ID and Client Secret into `.env`.  
 
 ## Usage
+
+### Authorization & Scope Selection
+
+* **Interactive Scope Selection (Default for Claude & ChatGPT)**: Visiting `<APP_URL>/oauth/authorize` displays a consent screen where users select which Google services to enable. All services are **read-only by default**; checking the **Write** column grants full read/write privileges for that service.  
+* **Presets**: Quick-select buttons are available for **Recommended** (standard Workspace services, excluding restricted scopes), **All Read-Only**, **All Write**, and **None**.  
+* **Restricted Scopes**: Scopes marked with `*` (Gmail, Photos) require sensitive verification in Google Cloud or test user access in Workspace domains.  
 
 ### ChatGPT
 Go to **Plugins** → **New Plugin**:
@@ -31,7 +39,7 @@ Go to **Plugins** → **New Plugin**:
 Go to **Customize** → **Connectors**:
 
 * Add a new connector with URL `<APP_URL>/mcp`.  
-* Select "Sign in now" and "Use Claude's published identity".
+* Select "Sign in now" and "Use Claude's published identity".  
 
 ### CLI Agents (Antigravity, Claude Code, etc.)
 Sign in at `<APP_URL>/oauth/authorize` in your browser to get your session token, then add the MCP server with the `Authorization: Bearer <token>` header:
@@ -39,7 +47,7 @@ Sign in at `<APP_URL>/oauth/authorize` in your browser to get your session token
 ```json
 {
 	"mcpServers": {
-		"gdrive": {
+		"google": {
 			"serverUrl": "http://localhost:8080/mcp",
 			"headers": {
 				"Authorization": "Bearer <token>"
@@ -49,28 +57,32 @@ Sign in at `<APP_URL>/oauth/authorize` in your browser to get your session token
 }
 ```
 
+## Tools
+
+* **`authStatus`**: Returns whether the session is authenticated, the connected Google email, read-only mode, and granted scopes.  
+* **`googleApi`**: Direct HTTP caller to Google APIs (`*.googleapis.com`).  
+  * `url`: Full URL (e.g. `https://www.googleapis.com/calendar/v3/calendars/primary/events`) or path (e.g. `drive/v3/files`).  
+  * `method`: `GET`, `POST`, `PUT`, `PATCH`, `DELETE` (defaults to `GET`).  
+  * `query`: Object with query parameters (e.g. `{ "q": "name contains 'Invoice'" }`).  
+  * `body`: Object or string body for POST/PUT/PATCH requests.  
+  * `headers`: Extra request headers (e.g. `{ "accept": "application/pdf" }`).  
+
 ## Endpoints
 ```
 POST /mcp                                       # json-rpc mcp endpoint
-GET  /oauth/authorize                           # oauth redirect to google
+GET  /oauth/authorize                           # oauth scope selection & sign-in screen
+POST /oauth/authorize/consent                   # consent submission -> google oauth redirect
 GET  /oauth/callback                            # oauth callback handler
 POST /oauth/token                               # token exchange proxy
 GET  /.well-known/oauth-protected-resource      # rfc 9728 discovery
 GET  /.well-known/oauth-authorization-server    # rfc 8414 discovery
 GET  /api/health                                # health check
 ```
-  
-## Tools
-
-* `driveApi` Proxy to `https://www.googleapis.com/drive/v3/{path}`  
-* `docsApi` Proxy to `https://docs.googleapis.com/v1/{path}`  
-* `sheetsApi` Proxy to `https://sheets.googleapis.com/v4/{path}`  
-* `authStatus` Check Google token status  
 
 ## Install
 ```sh
-$ git clone https://github.com/jessetane/gdrive-mcp.git
-$ cd gdrive-mcp
+$ git clone https://github.com/jessetane/google-mcp.git
+$ cd google-mcp
 $ npm install
 $ cp .env.example .env
 ```
@@ -82,3 +94,4 @@ $ npm test
 
 ## License
 MIT
+

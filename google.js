@@ -4,7 +4,8 @@ export {
 	getFreshGoogleToken,
 	proxyGoogleApi,
 	getUserInfo,
-	readResponseBody
+	readResponseBody,
+	isGoogleApiUrl
 }
 
 const clientId = process.env.GOOGLE_CLIENT_ID
@@ -33,9 +34,13 @@ async function refreshGoogleAccessToken (session) {
 	db.sessions.updateTokens(session.id, {
 		accessToken: data.access_token,
 		expiresAt,
-		refreshToken: data.refresh_token || null
+		refreshToken: data.refresh_token || null,
+		scope: data.scope || null
 	})
-	return data.access_token
+	return {
+		token: data.access_token,
+		session: db.sessions.get(session.id)
+	}
 }
 
 async function getFreshGoogleToken (token) {
@@ -43,9 +48,16 @@ async function getFreshGoogleToken (token) {
 	const session = db.sessions.getByToken(token)
 	if (session) {
 		if (session.refreshToken && (!session.expiresAt || Date.now() > session.expiresAt - 60000)) {
-			return await refreshGoogleAccessToken(session)
+			const refreshed = await refreshGoogleAccessToken(session)
+			return {
+				token: refreshed.token,
+				session: refreshed.session
+			}
 		}
-		return session.accessToken
+		return {
+			token: session.accessToken,
+			session
+		}
 	}
 	return null
 }
@@ -68,6 +80,17 @@ async function getUserInfo (googleToken) {
 		throw err
 	}
 	return await res.json()
+}
+
+function isGoogleApiUrl (urlString) {
+	try {
+		const parsed = new URL(urlString)
+		if (parsed.protocol !== 'https:') return false
+		const hostname = parsed.hostname.toLowerCase()
+		return hostname === 'googleapis.com' || hostname.endsWith('.googleapis.com')
+	} catch {
+		return false
+	}
 }
 
 async function readResponseBody (res, maxBytes) {
@@ -97,16 +120,30 @@ async function readResponseBody (res, maxBytes) {
 }
 
 async function proxyGoogleApi (opts = {}) {
-	const { token, baseUrl, path, method = 'GET', query, body, headers = {} } = opts
-	let url = `${baseUrl.replace(/\/$/, '')}/${path.replace(/^\//, '')}`
-	if (query && typeof query === 'object' && Object.keys(query).length > 0) {
-		const params = new URLSearchParams()
-		for (const [k, v] of Object.entries(query)) {
-			if (v !== undefined && v !== null) params.append(k, String(v))
-		}
-		const q = params.toString()
-		if (q) url += (url.includes('?') ? '&' : '?') + q
+	const { token, url: targetUrl, method = 'GET', query, body, headers = {} } = opts
+	if (!targetUrl) {
+		const err = new Error('Missing url parameter')
+		err.status = 400
+		throw err
 	}
+	let fullUrl = targetUrl.startsWith('http://') || targetUrl.startsWith('https://')
+		? targetUrl
+		: `https://www.googleapis.com/${targetUrl.replace(/^\//, '')}`
+
+	if (!isGoogleApiUrl(fullUrl)) {
+		const err = new Error(`Target URL domain not allowed. Requests must target *.googleapis.com, got: ${fullUrl}`)
+		err.status = 403
+		throw err
+	}
+
+	if (query && typeof query === 'object' && Object.keys(query).length > 0) {
+		const parsed = new URL(fullUrl)
+		for (const [k, v] of Object.entries(query)) {
+			if (v !== undefined && v !== null) parsed.searchParams.append(k, String(v))
+		}
+		fullUrl = parsed.toString()
+	}
+
 	const reqHeaders = {
 		authorization: `Bearer ${token}`,
 		...headers
@@ -120,11 +157,15 @@ async function proxyGoogleApi (opts = {}) {
 			reqBody = String(body)
 		}
 	}
-	const res = await fetch(url, {
-		method: method.toUpperCase(),
-		headers: reqHeaders,
-		body: reqBody
-	})
+	const reqMethod = method.toUpperCase()
+	const fetchOpts = {
+		method: reqMethod,
+		headers: reqHeaders
+	}
+	if (reqMethod !== 'GET' && reqMethod !== 'HEAD' && reqBody !== undefined) {
+		fetchOpts.body = reqBody
+	}
+	const res = await fetch(fullUrl, fetchOpts)
 	const maxFileSizeMb = Number(process.env.MAX_FILE_SIZE_MB) || 10
 	const maxFileSizeBytes = maxFileSizeMb * 1024 * 1024
 	const contentLength = res.headers.get('content-length')

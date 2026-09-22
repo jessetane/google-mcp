@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset=utf-8>
+		<meta name="viewport" content="width=device-width,initial-scale=1">
+		<title>google-mcp sign in</title>
+		<style>
+			* {
+				box-sizing: border-box;
+			}
+
+			html {
+				height: 100%;
+			}
+
+			body {
+				margin: 0;
+				height: 100%;
+				font-family: sans-serif;
+			}
+
+			.column {
+				display: flex;
+				flex-direction: column;
+			}
+
+			.view {
+				margin: auto;
+				width: 100%;
+				padding: 24px;
+			}
+
+			@media (min-width: 520px) {
+				.view {
+					max-width: 480px;
+				}
+			}
+
+			h1 {
+				margin: 0 0 8px;
+				font-size: 1.5rem;
+				text-align: center;
+			}
+
+			.subtitle {
+				margin: 0 0 16px;
+				color: #555;
+				font-size: 0.95rem;
+				line-height: 1.4;
+				text-align: center;
+			}
+
+			.presets {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 6px;
+				margin-bottom: 16px;
+			}
+
+			.btn-preset {
+				padding: 5px 10px;
+				background: #eee;
+				color: #222;
+				border: 1px solid #ccc;
+				border-radius: 4px;
+				font-size: 0.8rem;
+				cursor: pointer;
+			}
+
+			.btn-preset:hover {
+				background: #e0e0e0;
+			}
+
+			.table {
+				width: 100%;
+				border-collapse: collapse;
+				margin-bottom: 16px;
+				font-size: 0.9rem;
+			}
+
+			.table th {
+				text-align: left;
+				padding: 8px 6px;
+				border-bottom: 2px solid #ccc;
+			}
+
+			.table td {
+				padding: 8px 6px;
+				border-bottom: 1px solid #eee;
+			}
+
+			.table tr:hover {
+				background: #fafafa;
+			}
+
+			.col-write {
+				text-align: center;
+				width: 70px;
+			}
+
+			.col-write input:disabled {
+				opacity: 0.35;
+				cursor: not-allowed;
+			}
+
+			.restricted-mark {
+				color: #d9381e;
+				font-weight: bold;
+			}
+
+			.footnote {
+				font-size: 0.78rem;
+				color: #666;
+				line-height: 1.4;
+				margin-bottom: 20px;
+			}
+
+			button[type=submit] {
+				width: 100%;
+				padding: 11px 16px;
+				background: #000;
+				color: #fff;
+				border: none;
+				border-radius: 6px;
+				font-size: 1rem;
+				cursor: pointer;
+			}
+
+			button[type=submit]:hover {
+				opacity: 0.85;
+			}
+		</style>
+	</head>
+	<body class=column>
+		<div class="view column">
+			<h1>google-mcp</h1>
+			<p class="subtitle">Select Google services to grant access. All checked services are read-only by default; check Write for full access.</p>
+			<form id="consent-form" method="POST" action="/oauth/authorize/consent">
+				<div id="hidden-inputs"></div>
+				<div class="presets">
+					<button type="button" class="btn-preset" data-preset="recommended">Recommended</button>
+					<button type="button" class="btn-preset" data-preset="readonly">All Read-Only</button>
+					<button type="button" class="btn-preset" data-preset="allwrite">All Write</button>
+					<button type="button" class="btn-preset" data-preset="none">None</button>
+				</div>
+				<table class="table">
+					<thead>
+						<tr>
+							<th>Service</th>
+							<th class="col-write">Write</th>
+						</tr>
+					</thead>
+					<tbody id="service-rows"></tbody>
+				</table>
+				<div class="footnote">
+					<span class="restricted-mark">*</span> Restricted scopes (Gmail, Photos) trigger Google unverified app warnings unless published or in a Google Workspace domain with test users configured.
+				</div>
+				<button type="submit">Continue to Google</button>
+			</form>
+		</div>
+		<script>
+			const initData = {{INIT_DATA}}
+
+			function onServiceToggle (id) {
+				const s = document.getElementById('svc_' + id)
+				const w = document.getElementById('wr_' + id)
+				if (!s || !w) return
+				w.disabled = !s.checked
+				if (!s.checked) w.checked = false
+			}
+
+			function setPreset (kind) {
+				const services = document.querySelectorAll('input[name="services"]')
+				for (const s of services) {
+					const id = s.value
+					const isRestricted = s.getAttribute('data-restricted') === '1'
+					const w = document.getElementById('wr_' + id)
+					if (kind === 'none') {
+						s.checked = false
+						if (w) {
+							w.checked = false
+							w.disabled = true
+						}
+					} else if (kind === 'recommended') {
+						s.checked = !isRestricted
+						if (w) {
+							w.checked = false
+							w.disabled = !s.checked
+						}
+					} else if (kind === 'readonly') {
+						s.checked = true
+						if (w) {
+							w.checked = false
+							w.disabled = false
+						}
+					} else if (kind === 'allwrite') {
+						s.checked = true
+						if (w) {
+							w.checked = true
+							w.disabled = false
+						}
+					}
+				}
+			}
+
+			function init () {
+				const hiddenContainer = document.getElementById('hidden-inputs')
+				for (const [key, value] of Object.entries(initData.params || {})) {
+					const input = document.createElement('input')
+					input.type = 'hidden'
+					input.name = key
+					input.value = value
+					hiddenContainer.appendChild(input)
+				}
+				const tbody = document.getElementById('service-rows')
+				for (const s of (initData.services || [])) {
+					const tr = document.createElement('tr')
+					const tdSvc = document.createElement('td')
+					const label = document.createElement('label')
+					const inputSvc = document.createElement('input')
+					inputSvc.type = 'checkbox'
+					inputSvc.name = 'services'
+					inputSvc.id = 'svc_' + s.id
+					inputSvc.value = s.id
+					inputSvc.setAttribute('data-restricted', s.restricted ? '1' : '0')
+					inputSvc.checked = !s.restricted
+					inputSvc.addEventListener('change', function () {
+						onServiceToggle(s.id)
+					})
+					const spanName = document.createElement('span')
+					spanName.textContent = s.name
+					if (s.restricted) {
+						const mark = document.createElement('span')
+						mark.className = 'restricted-mark'
+						mark.textContent = ' *'
+						spanName.appendChild(mark)
+					}
+					label.appendChild(inputSvc)
+					label.appendChild(document.createTextNode(' '))
+					label.appendChild(spanName)
+					tdSvc.appendChild(label)
+					const tdWrite = document.createElement('td')
+					tdWrite.className = 'col-write'
+					const inputWr = document.createElement('input')
+					inputWr.type = 'checkbox'
+					inputWr.name = 'write_' + s.id
+					inputWr.id = 'wr_' + s.id
+					inputWr.value = '1'
+					inputWr.disabled = !inputSvc.checked
+					tdWrite.appendChild(inputWr)
+					tr.appendChild(tdSvc)
+					tr.appendChild(tdWrite)
+					tbody.appendChild(tr)
+				}
+				for (const btn of document.querySelectorAll('.btn-preset')) {
+					btn.addEventListener('click', function () {
+						setPreset(btn.getAttribute('data-preset'))
+					})
+				}
+			}
+
+			init()
+		</script>
+	</body>
+</html>

@@ -16,25 +16,32 @@ function init () {
 			client_state TEXT,
 			code_challenge TEXT,
 			code_challenge_method TEXT,
+			readonly INTEGER NOT NULL DEFAULT 0,
 			ip TEXT,
 			created_at INTEGER NOT NULL
 		);
 		CREATE INDEX IF NOT EXISTS idx_oauth_states_created ON oauth_states(created_at);
 	`)
 	const columns = sqlite.prepare('PRAGMA table_info(oauth_states)').all().map(c => c.name)
-	if (!columns.includes('code_challenge')) sqlite.exec('ALTER TABLE oauth_states ADD COLUMN code_challenge TEXT;')
-	if (!columns.includes('code_challenge_method')) sqlite.exec('ALTER TABLE oauth_states ADD COLUMN code_challenge_method TEXT;')
+	if (!columns.includes('readonly')) sqlite.exec('ALTER TABLE oauth_states ADD COLUMN readonly INTEGER NOT NULL DEFAULT 0;')
 }
 
 function create (opts = {}) {
-	const { clientRedirectUri = null, clientState = null, codeChallenge = null, codeChallengeMethod = null, ip = null } = opts
+	const {
+		clientRedirectUri = null,
+		clientState = null,
+		codeChallenge = null,
+		codeChallengeMethod = null,
+		readonly = 0,
+		ip = null
+	} = opts
 	pruneExpired()
 	const state = randomBytes(24).toString('base64url')
 	const now = Date.now()
 	sqlite.prepare(`
-		INSERT INTO oauth_states (state, client_redirect_uri, client_state, code_challenge, code_challenge_method, ip, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`).run(state, clientRedirectUri, clientState, codeChallenge, codeChallengeMethod, ip, now)
+		INSERT INTO oauth_states (state, client_redirect_uri, client_state, code_challenge, code_challenge_method, readonly, ip, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`).run(state, clientRedirectUri, clientState, codeChallenge, codeChallengeMethod, readonly ? 1 : 0, ip, now)
 	return state
 }
 
@@ -50,6 +57,7 @@ function consume (state) {
 		clientState: row.client_state,
 		codeChallenge: row.code_challenge,
 		codeChallengeMethod: row.code_challenge_method,
+		readonly: Boolean(row.readonly),
 		ip: row.ip,
 		createdAt: row.created_at
 	}

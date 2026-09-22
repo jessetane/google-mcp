@@ -1,8 +1,8 @@
 {
-	"name": "gdrive-mcp",
+	"name": "google-mcp",
 	"version": "1.0.0",
 	"type": "module",
-	"description": "MCP proxy for Google Drive, Docs and Sheets HTTP APIs",
+	"description": "MCP proxy for Google APIs with selective read/write or read-only access",
 	"main": "index.js",
 	"scripts": {
 		"start": "node index.js",
