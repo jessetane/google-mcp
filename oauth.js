@@ -241,7 +241,6 @@ function redirectToGoogle (res, req, opts = {}) {
 		state = null,
 		codeChallenge = null,
 		codeChallengeMethod = null,
-		isReadonly = false,
 		scopes = baseScopes.join(' ')
 	} = opts
 	const callbackUrl = `${appUrl.replace(/\/$/, '')}/oauth/callback`
@@ -251,7 +250,6 @@ function redirectToGoogle (res, req, opts = {}) {
 		clientState: state,
 		codeChallenge,
 		codeChallengeMethod,
-		readonly: isReadonly ? 1 : 0,
 		ip
 	})
 	const u = new URL('https://accounts.google.com/o/oauth2/v2/auth')
@@ -326,7 +324,6 @@ async function handleAuthorizeConsent (req, res) {
 	}
 	const { codeChallenge, codeChallengeMethod } = validation
 
-	const isReadonly = writeServiceIds.length === 0
 	const scopes = selectedServices.length > 0
 		? buildScopesFromSelection(selectedServices, writeServiceIds)
 		: baseScopes.join(' ')
@@ -336,7 +333,6 @@ async function handleAuthorizeConsent (req, res) {
 		state: query.state || null,
 		codeChallenge,
 		codeChallengeMethod,
-		isReadonly,
 		scopes
 	})
 }
@@ -399,7 +395,6 @@ async function handleCallback (req, res, query) {
 		accessToken: tokenData.access_token,
 		expiresAt: Date.now() + ((tokenData.expires_in || 3600) * 1000),
 		scope: tokenData.scope || null,
-		readonly: oauthState.readonly ? 1 : 0,
 		ip,
 		ua
 	})
@@ -420,7 +415,7 @@ async function handleCallback (req, res, query) {
 	}
 	res.statusCode = 200
 	res.setHeader('content-type', 'text/plain; charset=utf-8')
-	res.end(`user: ${email}\nmode: ${session.readonly ? 'read-only' : 'read-write'}\ntoken: ${session.token}\n\nheader:\nAuthorization: Bearer ${session.token}\n`)
+	res.end(`user: ${email}\ntoken: ${session.token}\n\nheader:\nAuthorization: Bearer ${session.token}\n`)
 }
 
 async function handleToken (req, res) {

@@ -7,15 +7,15 @@ export {
 
 const tools = [
 	{
-		name: 'authStatus',
-		description: 'Check if the current request has a valid Google authentication token, identity, and read-only status.',
+		name: 'auth_status',
+		description: 'Check if the current request has a valid Google authentication token, identity, and granted scopes.',
 		inputSchema: {
 			type: 'object',
 			properties: {}
 		}
 	},
 	{
-		name: 'googleApi',
+		name: 'google_api',
 		description: 'Make HTTP requests directly to Google APIs (e.g. Drive, Docs, Sheets, Calendar, Gmail, Tasks) restricted to *.googleapis.com. Automatically attaches the user\'s Google OAuth Bearer token.',
 		inputSchema: {
 			type: 'object',
@@ -63,7 +63,7 @@ async function executeTool (name, args = {}, token) {
 	const googleToken = authInfo?.token || null
 	const session = authInfo?.session || null
 
-	if (name === 'authStatus') {
+	if (name === 'auth_status') {
 		if (googleToken) {
 			try {
 				const user = await getUserInfo(googleToken)
@@ -73,7 +73,6 @@ async function executeTool (name, args = {}, token) {
 						text: JSON.stringify({
 							authenticated: true,
 							email: user.email,
-							readonly: session?.readonly ?? false,
 							scope: session?.scope ?? null
 						}, null, '\t')
 					}]
@@ -112,7 +111,7 @@ async function executeTool (name, args = {}, token) {
 		}
 	}
 
-	if (name !== 'googleApi') {
+	if (name !== 'google_api') {
 		return {
 			isError: true,
 			content: [{
@@ -123,15 +122,6 @@ async function executeTool (name, args = {}, token) {
 	}
 
 	const method = (args.method || 'GET').toUpperCase()
-	if (session?.readonly && method !== 'GET' && method !== 'HEAD') {
-		return {
-			isError: true,
-			content: [{
-				type: 'text',
-				text: `Operation rejected: Session is in read-only mode and cannot perform ${method} requests.`
-			}]
-		}
-	}
 
 	try {
 		const result = await proxyGoogleApi({

@@ -83,10 +83,10 @@ test('mcp initialize & tools/list', async () => {
 	assert.equal(listRes.status, 200)
 	const listData = await listRes.json()
 	const toolNames = listData.result.tools.map(t => t.name)
-	assert.deepEqual(toolNames, ['authStatus', 'googleApi'])
+	assert.deepEqual(toolNames, ['auth_status', 'google_api'])
 })
 
-test('mcp authStatus tool without auth', async () => {
+test('mcp auth_status tool without auth', async () => {
 	const addr = server.address()
 	const res = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
 		method: 'POST',
@@ -96,7 +96,7 @@ test('mcp authStatus tool without auth', async () => {
 			id: 3,
 			method: 'tools/call',
 			params: {
-				name: 'authStatus',
+				name: 'auth_status',
 				arguments: {}
 			}
 		})
@@ -107,7 +107,7 @@ test('mcp authStatus tool without auth', async () => {
 	assert.equal(parsed.authenticated, false)
 })
 
-test('mcp googleApi tool requires auth', async () => {
+test('mcp google_api tool requires auth', async () => {
 	const addr = server.address()
 	const res = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
 		method: 'POST',
@@ -117,7 +117,7 @@ test('mcp googleApi tool requires auth', async () => {
 			id: 4,
 			method: 'tools/call',
 			params: {
-				name: 'googleApi',
+				name: 'google_api',
 				arguments: { url: 'drive/v3/files' }
 			}
 		})
@@ -141,44 +141,26 @@ test('isGoogleApiUrl domain restrictions', () => {
 	assert.equal(isGoogleApiUrl('not-a-url'), false)
 })
 
-test('read-only session blocks non-GET requests', async () => {
-	const user = db.users.upsert({ email: 'ro@example.com', name: 'RO User' })
-	const roSession = db.sessions.create({
-		userId: user.id,
-		accessToken: 'ya29.fake-ro-token',
-		readonly: 1
-	})
-	const result = await executeTool('googleApi', {
-		url: 'drive/v3/files',
-		method: 'POST',
-		body: { name: 'test' }
-	}, roSession.token)
-	assert.equal(result.isError, true)
-	assert.match(result.content[0].text, /Session is in read-only mode and cannot perform POST requests/)
-})
-
-test('rejects non-googleapis URLs in googleApi tool', async () => {
+test('rejects non-googleapis URLs in google_api tool', async () => {
 	const user = db.users.upsert({ email: 'user@example.com' })
 	const session = db.sessions.create({
 		userId: user.id,
-		accessToken: 'ya29.fake-token',
-		readonly: 0
+		accessToken: 'ya29.fake-token'
 	})
-	const result = await executeTool('googleApi', {
+	const result = await executeTool('google_api', {
 		url: 'https://evil.com/steal-token'
 	}, session.token)
 	assert.equal(result.isError, true)
 	assert.match(result.content[0].text, /Target URL domain not allowed/)
 })
 
-test('mcp googleApi tool ignores body on GET requests', async () => {
+test('mcp google_api tool ignores body on GET requests', async () => {
 	const user = db.users.upsert({ email: 'getbody@example.com' })
 	const session = db.sessions.create({
 		userId: user.id,
-		accessToken: 'ya29.fake-token',
-		readonly: 0
+		accessToken: 'ya29.fake-token'
 	})
-	const result = await executeTool('googleApi', {
+	const result = await executeTool('google_api', {
 		url: 'https://www.googleapis.com/drive/v3/files',
 		method: 'GET',
 		body: { unwanted: 'payload' }
@@ -190,14 +172,12 @@ test('oauth state flow', async () => {
 	const state = db.oauthStates.create({
 		clientRedirectUri: 'https://example.com/oauth/return',
 		clientState: 'random-state',
-		readonly: 1,
 		ip: '127.0.0.1'
 	})
 	assert.ok(state)
 	const consumed = db.oauthStates.consume(state)
 	assert.equal(consumed.clientState, 'random-state')
 	assert.equal(consumed.clientRedirectUri, 'https://example.com/oauth/return')
-	assert.equal(consumed.readonly, true)
 	assert.equal(db.oauthStates.consume(state), null)
 })
 
@@ -420,7 +400,6 @@ test('oauth consent html page and post consent flow', async () => {
 	const stateRow = db.oauthStates.consume(stateParam)
 	assert.equal(stateRow.clientRedirectUri, 'https://chatgpt.com/callback')
 	assert.equal(stateRow.clientState, 'client-state-123')
-	assert.equal(stateRow.readonly, true)
 })
 
 test('oauth consent with dynamic service and write selection', async () => {
@@ -455,7 +434,7 @@ test('oauth consent with dynamic service and write selection', async () => {
 	assert.doesNotMatch(scopeParam, /tasks/)
 
 	const stateRow = db.oauthStates.consume(targetUrl.searchParams.get('state'))
-	assert.equal(stateRow.readonly, false)
+	assert.ok(stateRow)
 })
 
 test('direct browser authorize without redirect_uri', async () => {
@@ -481,7 +460,6 @@ test('direct browser authorize without redirect_uri', async () => {
 	const stateRow = db.oauthStates.consume(targetUrl.searchParams.get('state'))
 	assert.equal(stateRow.clientRedirectUri, null)
 	assert.equal(stateRow.codeChallenge, null)
-	assert.equal(stateRow.readonly, true)
 })
 
 test('cors preflight options request', async () => {

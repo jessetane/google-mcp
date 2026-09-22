@@ -53,8 +53,8 @@ Sign in at `<APP_URL>/oauth/authorize` in your browser to get your session token
 
 ## Tools
 
-* **`authStatus`**: Returns whether the session is authenticated, the connected Google email, read-only mode, and granted scopes.  
-* **`googleApi`**: Direct HTTP caller to Google APIs (`*.googleapis.com`).  
+* **`auth_status`**: Returns whether the session is authenticated, the connected Google email, and granted scopes.  
+* **`google_api`**: Direct HTTP caller to Google APIs (`*.googleapis.com`).  
   * `url`: Full URL (e.g. `https://www.googleapis.com/calendar/v3/calendars/primary/events`) or path (e.g. `drive/v3/files`).  
   * `method`: `GET`, `POST`, `PUT`, `PATCH`, `DELETE` (defaults to `GET`).  
   * `query`: Object with query parameters (e.g. `{ "q": "name contains 'Invoice'" }`).  
