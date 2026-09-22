@@ -87,6 +87,13 @@ async function handleMcp (req, res, token) {
 }
 
 const server = http.createServer(async (req, res) => {
+	const start = Date.now()
+	res.on('finish', () => {
+		if (process.env.NODE_ENV !== 'test') {
+			const duration = Date.now() - start
+			console.log(`[${res.statusCode}] ${req.method} ${req.url} (${duration}ms)`)
+		}
+	})
 	res.setHeader('access-control-allow-origin', '*')
 	res.setHeader('access-control-allow-methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
 	res.setHeader('access-control-allow-headers', 'authorization, content-type, mcp-session-id, x-api-key, accept')

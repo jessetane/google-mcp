@@ -459,6 +459,7 @@ async function handleToken (req, res) {
 		codeVerifier = codeVerifier || params.get('code_verifier')
 	}
 	if (!code) {
+		console.warn('[oauth] Token exchange failed: Missing code')
 		res.statusCode = 400
 		res.setHeader('content-type', 'application/json; charset=utf-8')
 		res.end(JSON.stringify({ error: 'invalid_request', error_description: 'Missing code' }))
@@ -466,12 +467,14 @@ async function handleToken (req, res) {
 	}
 	const authCode = db.oauthCodes.consume(code)
 	if (!authCode) {
+		console.warn('[oauth] Token exchange failed: Invalid or expired authorization code')
 		res.statusCode = 400
 		res.setHeader('content-type', 'application/json; charset=utf-8')
 		res.end(JSON.stringify({ error: 'invalid_grant', error_description: 'Invalid or expired authorization code' }))
 		return
 	}
 	if (authCode.clientRedirectUri && authCode.clientRedirectUri !== redirectUri) {
+		console.warn(`[oauth] Token exchange failed: redirect_uri mismatch (expected "${authCode.clientRedirectUri}", got "${redirectUri}")`)
 		res.statusCode = 400
 		res.setHeader('content-type', 'application/json; charset=utf-8')
 		res.end(JSON.stringify({ error: 'invalid_grant', error_description: 'redirect_uri mismatch' }))
@@ -479,18 +482,21 @@ async function handleToken (req, res) {
 	}
 	if (authCode.codeChallenge) {
 		if (!codeVerifier) {
+			console.warn('[oauth] Token exchange failed: Missing code_verifier')
 			res.statusCode = 400
 			res.setHeader('content-type', 'application/json; charset=utf-8')
 			res.end(JSON.stringify({ error: 'invalid_grant', error_description: 'Missing code_verifier' }))
 			return
 		}
 		if (typeof codeVerifier !== 'string' || codeVerifier.length < 43 || codeVerifier.length > 128) {
+			console.warn(`[oauth] Token exchange failed: code_verifier length invalid (${codeVerifier?.length})`)
 			res.statusCode = 400
 			res.setHeader('content-type', 'application/json; charset=utf-8')
 			res.end(JSON.stringify({ error: 'invalid_grant', error_description: 'Invalid code_verifier' }))
 			return
 		}
 		if (!verifyCodeChallenge(codeVerifier, authCode.codeChallenge, authCode.codeChallengeMethod)) {
+			console.warn('[oauth] Token exchange failed: PKCE verification failed')
 			res.statusCode = 400
 			res.setHeader('content-type', 'application/json; charset=utf-8')
 			res.end(JSON.stringify({ error: 'invalid_grant', error_description: 'Invalid code_verifier' }))
@@ -499,6 +505,7 @@ async function handleToken (req, res) {
 	}
 	const session = db.sessions.get(authCode.sessionId)
 	if (!session) {
+		console.warn('[oauth] Token exchange failed: Session not found')
 		res.statusCode = 400
 		res.setHeader('content-type', 'application/json; charset=utf-8')
 		res.end(JSON.stringify({ error: 'invalid_grant', error_description: 'Session not found' }))
