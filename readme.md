@@ -1,8 +1,8 @@
 # google-mcp
-MCP proxy for Google APIs (Drive, Docs, Sheets, Calendar, and more) restricted to `*.googleapis.com`.  
+MCP proxy for Google HTTP APIs.
 
 ## Why
-Google's web assistant is limited and lacks the flexibility of a standalone agent. Other assistants have selective access (e.g. Drive but not Sheets or Calendar). `google-mcp` provides an authenticated, direct HTTP gateway to Google's REST APIs with optional read-only scoping.  
+Gemini on the web is limited and lacks the power and flexibility of a standalone agent. Other frontier platforms may have "official" Google connectors but they are either paid-only, read-only or don't cover enough surface area to be truly useful.
 
 ## How
 
@@ -48,7 +48,7 @@ Sign in at `<APP_URL>/oauth/authorize` in your browser to get your session token
 {
 	"mcpServers": {
 		"google": {
-			"serverUrl": "http://localhost:8080/mcp",
+			"serverUrl": "<APP_URL>/mcp",
 			"headers": {
 				"Authorization": "Bearer <token>"
 			}
