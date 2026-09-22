@@ -108,6 +108,11 @@
 				font-weight: bold;
 			}
 
+			.workspace-mark {
+				color: #1a73e8;
+				font-weight: bold;
+			}
+
 			.footnote {
 				font-size: 0.78rem;
 				color: #666;
@@ -153,7 +158,8 @@
 					<tbody id="service-rows"></tbody>
 				</table>
 				<div class="footnote">
-					<span class="restricted-mark">*</span> Restricted scopes (Gmail, Photos) trigger Google unverified app warnings unless published or in a Google Workspace domain with test users configured.
+					<div><span class="restricted-mark">*</span> Restricted scopes (Gmail, Photos) trigger Google unverified app warnings unless published or in a Google Workspace domain with test users configured.</div>
+					<div><span class="workspace-mark">†</span> Requires a Google Workspace account. Requests from personal (@gmail.com) accounts will fail if selected.</div>
 				</div>
 				<button type="submit">Continue to Google</button>
 			</form>
@@ -174,6 +180,7 @@
 				for (const s of services) {
 					const id = s.value
 					const isRestricted = s.getAttribute('data-restricted') === '1'
+					const isWorkspace = s.getAttribute('data-workspace') === '1'
 					const w = document.getElementById('wr_' + id)
 					if (kind === 'none') {
 						s.checked = false
@@ -182,7 +189,7 @@
 							w.disabled = true
 						}
 					} else if (kind === 'recommended') {
-						s.checked = !isRestricted
+						s.checked = !isRestricted && !isWorkspace
 						if (w) {
 							w.checked = false
 							w.disabled = !s.checked
@@ -223,7 +230,8 @@
 					inputSvc.id = 'svc_' + s.id
 					inputSvc.value = s.id
 					inputSvc.setAttribute('data-restricted', s.restricted ? '1' : '0')
-					inputSvc.checked = !s.restricted
+					inputSvc.setAttribute('data-workspace', s.workspace ? '1' : '0')
+					inputSvc.checked = !s.restricted && !s.workspace
 					inputSvc.addEventListener('change', function () {
 						onServiceToggle(s.id)
 					})
@@ -233,6 +241,12 @@
 						const mark = document.createElement('span')
 						mark.className = 'restricted-mark'
 						mark.textContent = ' *'
+						spanName.appendChild(mark)
+					}
+					if (s.workspace) {
+						const mark = document.createElement('span')
+						mark.className = 'workspace-mark'
+						mark.textContent = ' †'
 						spanName.appendChild(mark)
 					}
 					label.appendChild(inputSvc)

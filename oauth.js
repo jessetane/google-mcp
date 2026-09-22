@@ -73,27 +73,30 @@ const services = {
 		ro: ['https://www.googleapis.com/auth/tasks.readonly'],
 		rw: ['https://www.googleapis.com/auth/tasks']
 	},
-	keep: {
-		id: 'keep',
-		name: 'Google Keep',
-		ro: ['https://www.googleapis.com/auth/keep.readonly'],
-		rw: ['https://www.googleapis.com/auth/keep']
-	},
-	meet: {
-		id: 'meet',
-		name: 'Google Meet',
-		ro: ['https://www.googleapis.com/auth/meetings.space.readonly'],
-		rw: ['https://www.googleapis.com/auth/meetings.space.created']
-	},
 	contacts: {
 		id: 'contacts',
 		name: 'Google Contacts',
 		ro: ['https://www.googleapis.com/auth/contacts.readonly'],
 		rw: ['https://www.googleapis.com/auth/contacts']
 	},
+	keep: {
+		id: 'keep',
+		name: 'Google Keep',
+		workspace: true,
+		ro: ['https://www.googleapis.com/auth/keep.readonly'],
+		rw: ['https://www.googleapis.com/auth/keep']
+	},
+	meet: {
+		id: 'meet',
+		name: 'Google Meet',
+		workspace: true,
+		ro: ['https://www.googleapis.com/auth/meetings.space.readonly'],
+		rw: ['https://www.googleapis.com/auth/meetings.space.created']
+	},
 	chat: {
 		id: 'chat',
 		name: 'Google Chat',
+		workspace: true,
 		ro: [
 			'https://www.googleapis.com/auth/chat.spaces.readonly',
 			'https://www.googleapis.com/auth/chat.messages.readonly'
@@ -281,7 +284,8 @@ async function handleAuthorize (req, res, query) {
 	const clientServices = Object.values(services).map(s => ({
 		id: s.id,
 		name: s.name,
-		restricted: Boolean(s.restricted)
+		restricted: Boolean(s.restricted),
+		workspace: Boolean(s.workspace)
 	}))
 	const initData = {
 		services: clientServices,
