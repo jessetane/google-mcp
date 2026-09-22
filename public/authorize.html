@@ -138,8 +138,7 @@
 			<form id="consent-form" method="POST" action="/oauth/authorize/consent">
 				<div id="hidden-inputs"></div>
 				<div class="presets">
-					<button type="button" class="btn-preset" data-preset="recommended">Recommended</button>
-					<button type="button" class="btn-preset" data-preset="readonly">All Read-Only</button>
+					<button type="button" class="btn-preset" data-preset="allread">All Read</button>
 					<button type="button" class="btn-preset" data-preset="allwrite">All Write</button>
 					<button type="button" class="btn-preset" data-preset="none">None</button>
 				</div>
@@ -181,17 +180,11 @@
 							w.checked = false
 							w.disabled = true
 						}
-					} else if (kind === 'recommended') {
+					} else if (kind === 'allread') {
 						s.checked = !isEnterprise
 						if (w) {
 							w.checked = false
 							w.disabled = !s.checked
-						}
-					} else if (kind === 'readonly') {
-						s.checked = true
-						if (w) {
-							w.checked = false
-							w.disabled = false
 						}
 					} else if (kind === 'allwrite') {
 						if (s.checked && w) {
