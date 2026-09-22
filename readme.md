@@ -5,7 +5,8 @@ MCP proxy for Google HTTP APIs.
 Gemini on the web is limited and lacks the power and flexibility of a standalone agent. Other frontier platforms may have "official" Google connectors but they are either paid-only, read-only or don't cover enough surface area to be truly useful.
 
 ## How
-Oauth proxy handles Google API scoping and token lifecycle, a single "dumb" MCP tool allows agents to leverage their existing Google HTTP API knowledge.
+* **Auth**: An internal OAuth server manages interactive Google service scope selection and automatic token refreshes locally in SQLite.  
+* **Proxy**: A single `google_api` MCP tool securely bridges HTTP calls directly to `*.googleapis.com`, giving agents near direct access to Google's REST APIs.  
 
 ## Setup
 A Google Cloud project with OAuth credentials is required:
