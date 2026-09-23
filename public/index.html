@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset=utf-8>
+		<meta name="viewport" content="width=device-width,initial-scale=1">
+		<title>google-mcp</title>
+		<style>
+			* {
+				box-sizing: border-box;
+			}
+
+			html {
+				height: 100%;
+			}
+
+			body {
+				margin: 0;
+				height: 100%;
+				font-family: sans-serif;
+			}
+
+			.column {
+				display: flex;
+				flex-direction: column;
+			}
+
+			.view {
+				margin: auto;
+				width: 100%;
+				padding: 24px;
+				align-items: center;
+				text-align: center;
+			}
+
+			@media (min-width: 520px) {
+				.view {
+					max-width: 480px;
+				}
+			}
+
+			h1 {
+				font-size: 1.5rem;
+				margin-bottom: 1.75rem;
+			}
+
+			.subtitle {
+				margin: 0 0 20px;
+				color: #555;
+				font-size: 0.95rem;
+				line-height: 1.4;
+			}
+
+			.endpoint {
+				margin: 0 0 20px;
+				font-size: min(5vw, 1rem);
+			}
+
+			code {
+				cursor: pointer;
+				background: #f4f4f4;
+				padding: 4px 8px;
+				border-radius: 4px;
+				border: 1px solid #ddd;
+				user-select: all;
+			}
+
+			code:hover {
+				background: #eaeaea;
+			}
+
+			.actions {
+				margin-top: 0.15rem;
+			}
+
+			a {
+				color: #000;
+				font-size: 0.85rem;
+			}
+
+			a:hover {
+				opacity: 0.75;
+			}
+		</style>
+	</head>
+	<body class=column>
+		<div class="view column">
+			<h1>google-mcp</h1>
+			<h2 class="endpoint"><code>{{APP_URL}}/mcp</code></h2>
+			<div class="actions">
+				<a href="/oauth/authorize">Generate bearer token</a>
+			</div>
+		</div>
+		<script>
+			const codeEl = document.querySelector('code')
+			if (codeEl) {
+				codeEl.addEventListener('click', async function (evt) {
+					const target = evt.currentTarget
+					const value = target.getAttribute('data-value') || target.textContent
+					try {
+						await navigator.clipboard.writeText(value)
+						target.textContent = 'Copied!'
+						setTimeout(function () {
+							target.textContent = value
+						}, 600)
+					} catch (err) {
+						console.error(err)
+					}
+				})
+			}
+		</script>
+	</body>
+</html>
