@@ -240,6 +240,7 @@ test('well-known oauth discovery endpoints', async () => {
 	const authData = await resAuth.json()
 	assert.ok(authData.authorization_endpoint.endsWith('/oauth/authorize'))
 	assert.ok(authData.token_endpoint.endsWith('/oauth/token'))
+	assert.ok(authData.revocation_endpoint.endsWith('/oauth/revoke'))
 	assert.deepEqual(authData.code_challenge_methods_supported, ['S256'])
 	assert.equal(authData.client_id_metadata_document_supported, true)
 })
@@ -541,6 +542,54 @@ test('readResponseBody enforces size limit on streams', async () => {
 	const smallResponse = new Response(smallStream)
 	const buf = await readResponseBody(smallResponse, 1000)
 	assert.equal(buf.toString(), 'hello world')
+})
+
+test('rfc 7009 /oauth/revoke endpoint', async () => {
+	const addr = server.address()
+	const methodRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/revoke`, {
+		method: 'GET'
+	})
+	assert.equal(methodRes.status, 405)
+	const missingRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/revoke`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/x-www-form-urlencoded' },
+		body: ''
+	})
+	assert.equal(missingRes.status, 400)
+	const missingData = await missingRes.json()
+	assert.equal(missingData.error, 'invalid_request')
+	const unknownRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/revoke`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/x-www-form-urlencoded' },
+		body: new URLSearchParams({ token: 'nonexistent-token' }).toString()
+	})
+	assert.equal(unknownRes.status, 200)
+	const user = db.users.upsert({ email: 'revoke-endpoint@example.com' })
+	const session = db.sessions.create({
+		userId: user.id,
+		accessToken: 'ya29.revoke-access-token',
+		refreshToken: '1//revoke-refresh-token'
+	})
+	assert.ok(db.sessions.get(session.id))
+	const revokeRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/revoke`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/x-www-form-urlencoded' },
+		body: new URLSearchParams({ token: session.token }).toString()
+	})
+	assert.equal(revokeRes.status, 200)
+	assert.equal(db.sessions.get(session.id), null)
+	const sessionJson = db.sessions.create({
+		userId: user.id,
+		accessToken: 'ya29.revoke-json-access-token'
+	})
+	assert.ok(db.sessions.get(sessionJson.id))
+	const revokeJsonRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/revoke`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ token: sessionJson.token })
+	})
+	assert.equal(revokeJsonRes.status, 200)
+	assert.equal(db.sessions.get(sessionJson.id), null)
 })
 
 test('teardown server', (t, done) => {

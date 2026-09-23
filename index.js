@@ -155,6 +155,10 @@ const server = http.createServer(async (req, res) => {
 			await oauth.handleToken(req, res)
 			return
 		}
+		if (pathname === '/oauth/revoke') {
+			await oauth.handleRevoke(req, res)
+			return
+		}
 		const err = new Error('not found')
 		err.code = 404
 		throw err

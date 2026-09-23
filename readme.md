@@ -68,6 +68,7 @@ GET  /oauth/authorize                           # oauth scope selection & sign-i
 POST /oauth/authorize/consent                   # consent submission -> google oauth redirect
 GET  /oauth/callback                            # oauth callback handler
 POST /oauth/token                               # token exchange proxy
+POST /oauth/revoke                              # rfc 7009 token revocation
 GET  /.well-known/oauth-protected-resource      # rfc 9728 discovery
 GET  /.well-known/oauth-authorization-server    # rfc 8414 discovery
 GET  /api/health                                # health check

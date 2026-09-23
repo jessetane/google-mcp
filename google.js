@@ -4,6 +4,7 @@ export {
 	getFreshGoogleToken,
 	proxyGoogleApi,
 	getUserInfo,
+	revokeGoogleToken,
 	readResponseBody,
 	isGoogleApiUrl,
 	baseScopes,
@@ -197,6 +198,19 @@ async function getUserInfo (googleToken) {
 		throw err
 	}
 	return await res.json()
+}
+
+async function revokeGoogleToken (token) {
+	if (!token) return
+	try {
+		await fetch('https://oauth2.googleapis.com/revoke', {
+			method: 'POST',
+			headers: { 'content-type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams({ token }).toString()
+		})
+	} catch (err) {
+		console.warn('Failed to revoke token with Google upstream:', err.message)
+	}
 }
 
 function isGoogleApiUrl (urlString) {

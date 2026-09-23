@@ -6,6 +6,7 @@ export {
 	create,
 	get,
 	getByToken,
+	remove,
 	updateTokens,
 	pruneExpired
 }
@@ -93,6 +94,12 @@ function getByToken (token) {
 		WHERE sessions.token = ?
 	`).get(token)
 	return formatSession(row)
+}
+
+function remove (id) {
+	if (!id) return false
+	const res = sqlite.prepare('DELETE FROM sessions WHERE id = ?').run(id)
+	return res.changes > 0
 }
 
 function updateTokens (id, opts = {}) {

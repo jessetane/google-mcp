@@ -3,7 +3,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as db from './db/index.js'
-import { getUserInfo, baseScopes, services, buildScopesFromSelection } from './google.js'
+import { getUserInfo, revokeGoogleToken, baseScopes, services, buildScopesFromSelection } from './google.js'
 import { getBody } from './util.js'
 
 export {
@@ -11,6 +11,7 @@ export {
 	handleAuthorizeConsent,
 	handleCallback,
 	handleToken,
+	handleRevoke,
 	handleProtectedResourceMetadata,
 	handleAuthServerMetadata,
 	isAllowedRedirectUri
@@ -69,9 +70,11 @@ async function handleAuthServerMetadata (req, res) {
 		issuer: base,
 		authorization_endpoint: `${base}/oauth/authorize`,
 		token_endpoint: `${base}/oauth/token`,
+		revocation_endpoint: `${base}/oauth/revoke`,
 		response_types_supported: ['code'],
 		grant_types_supported: ['authorization_code'],
 		token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
+		revocation_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
 		code_challenge_methods_supported: ['S256'],
 		client_id_metadata_document_supported: true
 	}
@@ -373,4 +376,39 @@ async function handleToken (req, res) {
 		token_type: 'Bearer',
 		expires_in: 60 * 24 * 60 * 60
 	}))
+}
+
+async function handleRevoke (req, res) {
+	if (req.method !== 'POST') {
+		res.statusCode = 405
+		res.setHeader('content-type', 'application/json; charset=utf-8')
+		res.end(JSON.stringify({ error: 'method_not_allowed' }))
+		return
+	}
+	const rawBody = await getBody(req)
+	let token = null
+	try {
+		const parsed = JSON.parse(rawBody)
+		token = parsed?.token || null
+	} catch {
+		const params = new URLSearchParams(rawBody)
+		token = params.get('token')
+	}
+	if (!token) {
+		res.statusCode = 400
+		res.setHeader('content-type', 'application/json; charset=utf-8')
+		res.end(JSON.stringify({ error: 'invalid_request', error_description: 'Missing token parameter' }))
+		return
+	}
+	const session = db.sessions.getByToken(token)
+	if (session) {
+		const upstreamToken = session.refreshToken || session.accessToken
+		if (upstreamToken) {
+			await revokeGoogleToken(upstreamToken)
+		}
+		db.sessions.remove(session.id)
+	}
+	res.statusCode = 200
+	res.setHeader('content-type', 'application/json; charset=utf-8')
+	res.end(JSON.stringify({ status: 'ok' }))
 }
