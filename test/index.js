@@ -38,9 +38,11 @@ test('root endpoint', async () => {
 	const addr = server.address()
 	const res = await fetch(`http://127.0.0.1:${addr.port}/`)
 	assert.equal(res.status, 200)
+	assert.equal(res.headers.get('content-type'), 'text/html; charset=utf-8')
 	const text = await res.text()
 	assert.match(text, /google-mcp/)
-	assert.match(text, /endpoints:/)
+	assert.match(text, /\/mcp/)
+	assert.match(text, /href="\/oauth\/authorize"/)
 })
 
 test('mcp initialize & tools/list', async () => {

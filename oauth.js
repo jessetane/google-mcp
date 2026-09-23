@@ -1,5 +1,5 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
-import fs from 'node:fs'
+import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as db from './db/index.js'
@@ -17,7 +17,6 @@ export {
 }
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
-const authorizeHtml = fs.readFileSync(path.join(dirname, 'public/authorize.html'), 'utf8')
 
 const appUrl = process.env.APP_URL || 'http://localhost:8080'
 const clientId = process.env.GOOGLE_CLIENT_ID
@@ -168,6 +167,7 @@ async function handleAuthorize (req, res, query) {
 		services: clientServices,
 		params: query
 	}
+	const authorizeHtml = await fs.readFile(path.join(dirname, 'public/authorize.html'), 'utf8')
 	const html = authorizeHtml.replace('{{INIT_DATA}}', JSON.stringify(initData).replace(/</g, '\\u003c'))
 	res.statusCode = 200
 	res.setHeader('content-type', 'text/html; charset=utf-8')

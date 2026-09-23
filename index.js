@@ -2,6 +2,9 @@
 
 import 'dotenv/config'
 import http from 'node:http'
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import RpcEngine from 'rpc-engine'
 import * as oauth from './oauth.js'
 import * as google from './google.js'
@@ -10,8 +13,11 @@ import { getBody } from './util.js'
 
 export { server }
 
+const dirname = path.dirname(fileURLToPath(import.meta.url))
+
 const host = process.env.HOST || '::1'
 const port = process.env.PORT || '8080'
+const appUrl = process.env.APP_URL || 'http://localhost:8080'
 
 function resolveToken (req) {
 	const auth = req.headers.authorization || ''
@@ -107,9 +113,11 @@ const server = http.createServer(async (req, res) => {
 	const pathname = url.pathname.replace(/\/+$/, '') || '/'
 	try {
 		if (pathname === '/') {
+			const indexHtml = await fs.readFile(path.join(dirname, 'public/index.html'), 'utf8')
+			const html = indexHtml.replaceAll('{{APP_URL}}', appUrl.replace(/\/$/, ''))
 			res.statusCode = 200
-			res.setHeader('content-type', 'text/plain; charset=utf-8')
-			res.end('google-mcp\n\nendpoints:\n  POST /mcp\n  GET  /oauth/authorize\n  POST /oauth/token\n')
+			res.setHeader('content-type', 'text/html; charset=utf-8')
+			res.end(html)
 			return
 		}
 		if (pathname === '/api/health') {
