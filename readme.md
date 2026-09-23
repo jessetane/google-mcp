@@ -6,7 +6,7 @@ Gemini on the web is limited and lacks the power and flexibility of a standalone
 
 ## How
 * **Auth**: An internal OAuth server manages interactive Google service scope selection and automatic token refreshes locally in SQLite.  
-* **Proxy**: A single `google_api` MCP tool securely bridges HTTP calls directly to `*.googleapis.com`, giving agents near direct access to Google's REST APIs.  
+* **Proxy**: A single `google_api` MCP tool securely bridges HTTP calls to `*.googleapis.com`, giving agents near direct access to Google's REST APIs.  
 
 ## Setup
 A Google Cloud project with OAuth credentials is required:
@@ -57,7 +57,7 @@ Sign in at `<APP_URL>/oauth/authorize` in your browser to get your session token
   * `action`: `'status'` (default), `'list'`, or `'revoke'`.  
   * `sessionId`: Optional session ID to revoke when action is `'revoke'`.  
   * `allOthers`: Optional boolean to revoke all other active sessions when action is `'revoke'`.  
-* **`google_api`**: Direct HTTP caller to Google APIs (`*.googleapis.com`).  
+* **`google_api`**: HTTP proxy to Google APIs (`*.googleapis.com`).  
   * `url`: Full URL (e.g. `https://www.googleapis.com/calendar/v3/calendars/primary/events`) or path (e.g. `drive/v3/files`).  
   * `method`: `GET`, `POST`, `PUT`, `PATCH`, `DELETE` (defaults to `GET`).  
   * `query`: Object with query parameters (e.g. `{ "q": "name contains 'Invoice'" }`).  
