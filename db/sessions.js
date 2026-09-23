@@ -6,6 +6,7 @@ export {
 	create,
 	get,
 	getByToken,
+	listByUserId,
 	remove,
 	updateTokens,
 	pruneExpired
@@ -94,6 +95,26 @@ function getByToken (token) {
 		WHERE sessions.token = ?
 	`).get(token)
 	return formatSession(row)
+}
+
+function listByUserId (userId) {
+	if (!userId) return []
+	pruneExpired()
+	const rows = sqlite.prepare(`
+		SELECT id, user_id, scope, ip, ua, created, updated
+		FROM sessions
+		WHERE user_id = ?
+		ORDER BY created DESC
+	`).all(userId)
+	return rows.map(r => ({
+		id: r.id,
+		userId: r.user_id,
+		scope: r.scope,
+		ip: r.ip,
+		ua: r.ua,
+		created: r.created,
+		updated: r.updated
+	}))
 }
 
 function remove (id) {

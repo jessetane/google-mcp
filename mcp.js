@@ -1,4 +1,5 @@
-import { proxyGoogleApi, getFreshGoogleToken, getUserInfo } from './google.js'
+import * as db from './db/index.js'
+import { proxyGoogleApi, getFreshGoogleToken, getUserInfo, revokeGoogleToken } from './google.js'
 
 export {
 	tools,
@@ -7,11 +8,25 @@ export {
 
 const tools = [
 	{
-		name: 'auth_status',
-		description: 'Check if the current request has a valid Google authentication token, identity, and granted scopes.',
+		name: 'auth',
+		description: 'Inspect authentication status, list active sessions for the current user, or revoke sessions.',
 		inputSchema: {
 			type: 'object',
-			properties: {}
+			properties: {
+				action: {
+					type: 'string',
+					enum: ['status', 'list', 'revoke'],
+					description: 'Action to perform: "status" (check current authentication state and session info), "list" (list all active sessions for current user), or "revoke" (revoke current session, a specific session by sessionId, or all other sessions). Defaults to "status".'
+				},
+				sessionId: {
+					type: 'string',
+					description: 'Specific session ID to revoke when action is "revoke". Omit to revoke the current session.'
+				},
+				allOthers: {
+					type: 'boolean',
+					description: 'When action is "revoke", set to true to revoke all other active sessions for this user except the current session.'
+				}
+			}
 		}
 	},
 	{
@@ -47,6 +62,183 @@ const tools = [
 ]
 
 async function executeTool (name, args = {}, token) {
+	if (name === 'auth') {
+		const action = args.action || 'status'
+		const appUrl = process.env.APP_URL || 'http://localhost:8080'
+		const session = db.sessions.getByToken(token)
+		if (action === 'status') {
+			if (session) {
+				let googleToken = null
+				try {
+					const authInfo = await getFreshGoogleToken(token)
+					googleToken = authInfo?.token || null
+				} catch (err) {
+					console.warn('Failed to refresh Google token during status check:', err.message)
+				}
+				if (googleToken) {
+					try {
+						const user = await getUserInfo(googleToken)
+						return {
+							content: [{
+								type: 'text',
+								text: JSON.stringify({
+									authenticated: true,
+									email: user.email,
+									scope: session.scope ?? null,
+									currentSession: {
+										id: session.id,
+										ip: session.ip,
+										ua: session.ua,
+										created: session.created,
+										updated: session.updated
+									}
+								}, null, '\t')
+							}]
+						}
+					} catch (err) {
+						return {
+							isError: true,
+							content: [{
+								type: 'text',
+								text: `Failed to verify Google token: ${err.message}`
+							}]
+						}
+					}
+				}
+				return {
+					content: [{
+						type: 'text',
+						text: JSON.stringify({
+							authenticated: true,
+							email: session.email,
+							scope: session.scope ?? null,
+							currentSession: {
+								id: session.id,
+								ip: session.ip,
+								ua: session.ua,
+								created: session.created,
+								updated: session.updated
+							}
+						}, null, '\t')
+					}]
+				}
+			}
+			return {
+				content: [{
+					type: 'text',
+					text: JSON.stringify({
+						authenticated: false,
+						signInUrl: `${appUrl.replace(/\/$/, '')}/oauth/authorize`,
+						message: 'Missing or expired Google Bearer token.'
+					}, null, '\t')
+				}]
+			}
+		}
+		if (action === 'list') {
+			if (!session) {
+				return {
+					isError: true,
+					content: [{
+						type: 'text',
+						text: `Authentication required: ${appUrl.replace(/\/$/, '')}/oauth/authorize`
+					}]
+				}
+			}
+			const rawSessions = db.sessions.listByUserId(session.userId)
+			const sessions = rawSessions.map(s => ({ ...s, isCurrent: s.id === session.id }))
+			return {
+				content: [{
+					type: 'text',
+					text: JSON.stringify({ sessions }, null, '\t')
+				}]
+			}
+		}
+		if (action === 'revoke') {
+			if (!session) {
+				return {
+					content: [{
+						type: 'text',
+						text: JSON.stringify({
+							revoked: false,
+							message: 'No active session found for the provided token.'
+						}, null, '\t')
+					}]
+				}
+			}
+			if (args.allOthers) {
+				const userSessions = db.sessions.listByUserId(session.userId)
+				const others = userSessions.filter(s => s.id !== session.id)
+				for (const s of others) {
+					const fullSession = db.sessions.get(s.id)
+					if (fullSession) {
+						const upstreamToken = fullSession.refreshToken || fullSession.accessToken
+						if (upstreamToken) await revokeGoogleToken(upstreamToken)
+						db.sessions.remove(fullSession.id)
+					}
+				}
+				return {
+					content: [{
+						type: 'text',
+						text: JSON.stringify({
+							revoked: true,
+							count: others.length,
+							message: `Revoked ${others.length} other session(s).`
+						}, null, '\t')
+					}]
+				}
+			}
+			if (args.sessionId) {
+				const targetSession = db.sessions.get(args.sessionId)
+				if (!targetSession || targetSession.userId !== session.userId) {
+					return {
+						content: [{
+							type: 'text',
+							text: JSON.stringify({
+								revoked: false,
+								message: `Session not found: ${args.sessionId}`
+							}, null, '\t')
+						}]
+					}
+				}
+				const upstreamToken = targetSession.refreshToken || targetSession.accessToken
+				if (upstreamToken) await revokeGoogleToken(upstreamToken)
+				db.sessions.remove(targetSession.id)
+				return {
+					content: [{
+						type: 'text',
+						text: JSON.stringify({
+							revoked: true,
+							sessionId: targetSession.id,
+							isCurrent: targetSession.id === session.id,
+							message: 'Session revoked.'
+						}, null, '\t')
+					}]
+				}
+			}
+			const upstreamToken = session.refreshToken || session.accessToken
+			if (upstreamToken) await revokeGoogleToken(upstreamToken)
+			db.sessions.remove(session.id)
+			return {
+				content: [{
+					type: 'text',
+					text: JSON.stringify({
+						revoked: true,
+						sessionId: session.id,
+						isCurrent: true,
+						message: 'Current session revoked.'
+					}, null, '\t')
+				}]
+			}
+		}
+		return {
+			isError: true,
+			content: [{
+				type: 'text',
+				text: `Unknown action: ${action}`
+			}]
+		}
+	}
+
 	let authInfo = null
 	try {
 		authInfo = await getFreshGoogleToken(token)
@@ -61,45 +253,6 @@ async function executeTool (name, args = {}, token) {
 	}
 
 	const googleToken = authInfo?.token || null
-	const session = authInfo?.session || null
-
-	if (name === 'auth_status') {
-		if (googleToken) {
-			try {
-				const user = await getUserInfo(googleToken)
-				return {
-					content: [{
-						type: 'text',
-						text: JSON.stringify({
-							authenticated: true,
-							email: user.email,
-							scope: session?.scope ?? null
-						}, null, '\t')
-					}]
-				}
-			} catch (err) {
-				return {
-					isError: true,
-					content: [{
-						type: 'text',
-						text: `Failed to verify Google token: ${err.message}`
-					}]
-				}
-			}
-		}
-		const appUrl = process.env.APP_URL || 'http://localhost:8080'
-		return {
-			content: [{
-				type: 'text',
-				text: JSON.stringify({
-					authenticated: false,
-					signInUrl: `${appUrl.replace(/\/$/, '')}/oauth/authorize`,
-					message: 'Missing or expired Google Bearer token.'
-				}, null, '\t')
-			}]
-		}
-	}
-
 	if (!googleToken) {
 		const appUrl = process.env.APP_URL || 'http://localhost:8080'
 		return {

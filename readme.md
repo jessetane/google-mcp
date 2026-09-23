@@ -53,7 +53,10 @@ Sign in at `<APP_URL>/oauth/authorize` in your browser to get your session token
 
 ## Tools
 
-* **`auth_status`**: Returns whether the session is authenticated, the connected Google email, and granted scopes.  
+* **`auth`**: Inspect authentication status, list active sessions for current user, or revoke sessions.  
+  * `action`: `'status'` (default), `'list'`, or `'revoke'`.  
+  * `sessionId`: Optional session ID to revoke when action is `'revoke'`.  
+  * `allOthers`: Optional boolean to revoke all other active sessions when action is `'revoke'`.  
 * **`google_api`**: Direct HTTP caller to Google APIs (`*.googleapis.com`).  
   * `url`: Full URL (e.g. `https://www.googleapis.com/calendar/v3/calendars/primary/events`) or path (e.g. `drive/v3/files`).  
   * `method`: `GET`, `POST`, `PUT`, `PATCH`, `DELETE` (defaults to `GET`).  

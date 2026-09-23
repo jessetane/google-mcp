@@ -85,10 +85,10 @@ test('mcp initialize & tools/list', async () => {
 	assert.equal(listRes.status, 200)
 	const listData = await listRes.json()
 	const toolNames = listData.result.tools.map(t => t.name)
-	assert.deepEqual(toolNames, ['auth_status', 'google_api'])
+	assert.deepEqual(toolNames, ['auth', 'google_api'])
 })
 
-test('mcp auth_status tool without auth', async () => {
+test('mcp auth tool without auth', async () => {
 	const addr = server.address()
 	const res = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
 		method: 'POST',
@@ -98,8 +98,8 @@ test('mcp auth_status tool without auth', async () => {
 			id: 3,
 			method: 'tools/call',
 			params: {
-				name: 'auth_status',
-				arguments: {}
+				name: 'auth',
+				arguments: { action: 'status' }
 			}
 		})
 	})
@@ -590,6 +590,49 @@ test('rfc 7009 /oauth/revoke endpoint', async () => {
 	})
 	assert.equal(revokeJsonRes.status, 200)
 	assert.equal(db.sessions.get(sessionJson.id), null)
+})
+
+test('mcp auth status, list, and revoke', async () => {
+	const user = db.users.upsert({ email: 'sessions-tool@example.com' })
+	const session1 = db.sessions.create({
+		userId: user.id,
+		accessToken: 'ya29.session-1-token',
+		refreshToken: '1//session-1-refresh',
+		ip: '192.168.1.10',
+		ua: 'ClaudeDesktop/1.0',
+		scope: 'https://www.googleapis.com/auth/drive.readonly'
+	})
+	const session2 = db.sessions.create({
+		userId: user.id,
+		accessToken: 'ya29.session-2-token',
+		refreshToken: '1//session-2-refresh',
+		ip: '10.0.0.5',
+		ua: 'ChatGPT/2.0'
+	})
+	const listResult = await executeTool('auth', { action: 'list' }, session1.token)
+	assert.equal(listResult.isError, undefined)
+	const listParsed = JSON.parse(listResult.content[0].text)
+	assert.equal(listParsed.sessions.length, 2)
+	const current = listParsed.sessions.find(s => s.isCurrent)
+	assert.equal(current.id, session1.id)
+	assert.equal(current.ip, '192.168.1.10')
+	assert.equal(current.ua, 'ClaudeDesktop/1.0')
+	const other = listParsed.sessions.find(s => !s.isCurrent)
+	assert.equal(other.id, session2.id)
+	assert.equal(other.ip, '10.0.0.5')
+	assert.equal(other.ua, 'ChatGPT/2.0')
+	const revokeOtherResult = await executeTool('auth', { action: 'revoke', allOthers: true }, session1.token)
+	assert.equal(revokeOtherResult.isError, undefined)
+	const revokeOtherParsed = JSON.parse(revokeOtherResult.content[0].text)
+	assert.equal(revokeOtherParsed.revoked, true)
+	assert.equal(revokeOtherParsed.count, 1)
+	assert.equal(db.sessions.get(session2.id), null)
+	assert.ok(db.sessions.get(session1.id))
+	const revokeCurrentResult = await executeTool('auth', { action: 'revoke' }, session1.token)
+	assert.equal(revokeCurrentResult.isError, undefined)
+	const revokeCurrentParsed = JSON.parse(revokeCurrentResult.content[0].text)
+	assert.equal(revokeCurrentParsed.revoked, true)
+	assert.equal(db.sessions.get(session1.id), null)
 })
 
 test('teardown server', (t, done) => {
