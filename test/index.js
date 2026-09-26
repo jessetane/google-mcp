@@ -21,6 +21,7 @@ const { server } = await import('../index.js')
 const db = await import('../db/index.js')
 const { readResponseBody, isGoogleApiUrl } = await import('../google.js')
 const { executeTool } = await import('../mcp.js')
+const { evaluatePolicy, matchPattern, parsePolicy, validatePolicy } = await import('../policy.js')
 
 test('setup server', (t, done) => {
 	server.listen(0, '127.0.0.1', done)
@@ -128,6 +129,47 @@ test('mcp google_api tool requires auth', async () => {
 	const data = await res.json()
 	assert.equal(data.result.isError, true)
 	assert.match(data.result.content[0].text, /Authentication required/)
+})
+
+test('mcp rejects tool call without name', async () => {
+	const addr = server.address()
+	const res = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({
+			jsonrpc: '2.0',
+			id: 5,
+			method: 'tools/call',
+			params: {
+				arguments: { action: 'status' }
+			}
+		})
+	})
+	assert.equal(res.status, 200)
+	const data = await res.json()
+	assert.equal(data.result.isError, true)
+	assert.equal(data.result.content[0].text, 'Tool name is required')
+})
+
+test('mcp rejects unknown tool call', async () => {
+	const addr = server.address()
+	const res = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({
+			jsonrpc: '2.0',
+			id: 6,
+			method: 'tools/call',
+			params: {
+				name: 'non_existent_tool',
+				arguments: {}
+			}
+		})
+	})
+	assert.equal(res.status, 200)
+	const data = await res.json()
+	assert.equal(data.result.isError, true)
+	assert.equal(data.result.content[0].text, 'Unknown tool: non_existent_tool')
 })
 
 test('isGoogleApiUrl domain restrictions', () => {
@@ -406,7 +448,7 @@ test('oauth consent with dynamic service and write selection', async () => {
 	consentParams.set('code_challenge_method', 'S256')
 	consentParams.append('services', 'drive')
 	consentParams.append('services', 'calendar')
-	consentParams.set('write_calendar', '1')
+	consentParams.append('write', 'calendar')
 
 	const consentRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize/consent`, {
 		method: 'POST',
@@ -454,6 +496,26 @@ test('direct browser authorize without redirect_uri', async () => {
 	const stateRow = db.oauthStates.consume(targetUrl.searchParams.get('state'))
 	assert.equal(stateRow.clientRedirectUri, null)
 	assert.equal(stateRow.codeChallenge, null)
+})
+
+test('authorize page with policy and service query params', async () => {
+	const addr = server.address()
+	const policyJson = JSON.stringify([{ action: 'allow', path: '/drive/**' }])
+	const res = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize?services=drive,calendar&write=calendar&policy=${encodeURIComponent(policyJson)}`)
+	assert.equal(res.status, 200)
+	const html = await res.text()
+	assert.match(html, /"policy":/)
+	assert.match(html, /"services":"drive,calendar"/)
+	assert.match(html, /"write":"calendar"/)
+})
+
+test('authorize page with repeated query parameters', async () => {
+	const addr = server.address()
+	const res = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize?services=drive&services=calendar&write=drive&write=calendar`)
+	assert.equal(res.status, 200)
+	const html = await res.text()
+	assert.match(html, /"services":"drive,calendar"/)
+	assert.match(html, /"write":"drive,calendar"/)
 })
 
 test('cors preflight options request', async () => {
@@ -633,6 +695,338 @@ test('mcp auth status, list, and revoke', async () => {
 	const revokeCurrentParsed = JSON.parse(revokeCurrentResult.content[0].text)
 	assert.equal(revokeCurrentParsed.revoked, true)
 	assert.equal(db.sessions.get(session1.id), null)
+})
+
+test('matchPattern matching logic', () => {
+	assert.equal(matchPattern('*', 'anything'), true)
+	assert.equal(matchPattern('**', '/nested/path/to/resource'), true)
+	assert.equal(matchPattern('/calendar/v3/calendars/*/events', '/calendar/v3/calendars/work/events'), true)
+	assert.equal(matchPattern('/calendar/v3/calendars/*/events', '/calendar/v3/calendars/work/other/events'), false)
+	assert.equal(matchPattern('/calendar/v3/calendars/**/events', '/calendar/v3/calendars/work/sub/events'), true)
+	assert.equal(matchPattern('/drive/v3/files/*', '/drive/v3/files/file123'), true)
+	assert.equal(matchPattern('/drive/v3/files/*', '/drive/v3/files/file123/comments'), false)
+	assert.equal(matchPattern('/drive/v3/files/**', '/drive/v3/files/file123/comments'), true)
+	assert.equal(matchPattern('/drive/**/files', '/drive/files'), true)
+	assert.equal(matchPattern('/drive/**/files', '/drive/v3/files'), true)
+	assert.equal(matchPattern('/drive/**/files', '/drive/a/b/files'), true)
+	assert.equal(matchPattern('/**/files', '/files'), true)
+	assert.equal(matchPattern('/**/files', '/a/files'), true)
+	assert.equal(matchPattern('/*/events', '/calendar/events'), true)
+	assert.equal(matchPattern('/*/events', '/calendar/work/events'), false)
+	assert.equal(matchPattern('/**/events', '/events'), true)
+	assert.equal(matchPattern('/**/events', '/calendar/events'), true)
+	assert.equal(matchPattern('/**/events', '/calendar/work/events'), true)
+	assert.equal(matchPattern('/**/**/**/**/**/**/**/**/**/**/**/**/**/**/**/**/x', '/a/a/a/a/a/a/a/a/a/a/a/a/a'), false)
+	assert.equal(matchPattern(null, 'test'), false)
+	assert.equal(matchPattern('test', null), false)
+	assert.equal(matchPattern('test', undefined), false)
+})
+
+test('parsePolicy helper parses valid JSON and returns null for invalid or empty policy', () => {
+	const policy = [{ action: 'allow', path: '/**' }]
+	assert.deepEqual(parsePolicy(JSON.stringify(policy)), policy)
+	assert.deepEqual(parsePolicy(policy), policy)
+	assert.equal(parsePolicy(null), null)
+	assert.equal(parsePolicy(''), null)
+	assert.equal(parsePolicy('invalid-json'), null)
+	assert.equal(parsePolicy([{ invalid: 'rule' }]), null)
+})
+
+test('evaluatePolicy allows all when policy is null or empty', () => {
+	assert.equal(evaluatePolicy(null, { url: '/calendar/v3/calendars/primary/events', method: 'GET' }).allowed, true)
+	assert.equal(evaluatePolicy('', { url: '/calendar/v3/calendars/primary/events', method: 'GET' }).allowed, true)
+	assert.equal(evaluatePolicy('[]', { url: '/calendar/v3/calendars/primary/events', method: 'GET' }).allowed, true)
+	assert.equal(evaluatePolicy([], { url: '/calendar/v3/calendars/primary/events', method: 'GET' }).allowed, true)
+})
+
+test('evaluatePolicy denylist mode defaults to allow', () => {
+	const policy = [
+		{
+			action: 'deny',
+			methods: ['DELETE']
+		}
+	]
+	assert.equal(evaluatePolicy(policy, { url: '/calendar/v3/calendars/primary/events', method: 'GET' }).allowed, true)
+	assert.equal(evaluatePolicy(policy, { url: '/calendar/v3/calendars/primary/events', method: 'POST' }).allowed, true)
+	assert.equal(evaluatePolicy(policy, { url: '/calendar/v3/calendars/primary/events/123', method: 'DELETE' }).allowed, false)
+})
+
+test('evaluatePolicy sequential evaluation for calendar allowlist with catch-all deny', () => {
+	const policy = [
+		{
+			action: 'allow',
+			methods: ['GET'],
+			path: '/calendar/v3/calendars/team-schedule@group.calendar.google.com'
+		},
+		{
+			action: 'allow',
+			path: '/calendar/v3/calendars/team-schedule@group.calendar.google.com/events/**'
+		},
+		{
+			action: 'deny',
+			description: 'Only the team-schedule calendar is accessible'
+		}
+	]
+
+	const allowedGetCal = evaluatePolicy(policy, {
+		url: 'https://www.googleapis.com/calendar/v3/calendars/team-schedule@group.calendar.google.com',
+		method: 'GET'
+	})
+	assert.equal(allowedGetCal.allowed, true)
+
+	const deniedDeleteCal = evaluatePolicy(policy, {
+		url: 'https://www.googleapis.com/calendar/v3/calendars/team-schedule@group.calendar.google.com',
+		method: 'DELETE'
+	})
+	assert.equal(deniedDeleteCal.allowed, false)
+	assert.equal(deniedDeleteCal.reason, 'Only the team-schedule calendar is accessible')
+
+	const allowedGetEvents = evaluatePolicy(policy, {
+		url: '/calendar/v3/calendars/team-schedule@group.calendar.google.com/events',
+		method: 'GET'
+	})
+	assert.equal(allowedGetEvents.allowed, true)
+
+	const allowedPostEvents = evaluatePolicy(policy, {
+		url: '/calendar/v3/calendars/team-schedule@group.calendar.google.com/events',
+		method: 'POST'
+	})
+	assert.equal(allowedPostEvents.allowed, true)
+
+	const allowedDeleteEvents = evaluatePolicy(policy, {
+		url: '/calendar/v3/calendars/team-schedule@group.calendar.google.com/events/evt123',
+		method: 'DELETE'
+	})
+	assert.equal(allowedDeleteEvents.allowed, true)
+
+	const deniedOtherCal = evaluatePolicy(policy, {
+		url: '/calendar/v3/calendars/other-team@group.calendar.google.com/events',
+		method: 'GET'
+	})
+	assert.equal(deniedOtherCal.allowed, false)
+	assert.equal(deniedOtherCal.reason, 'Only the team-schedule calendar is accessible')
+
+	const allowedEncodedEvents = evaluatePolicy(policy, {
+		url: '/calendar/v3/calendars/team-schedule%40group.calendar.google.com/events',
+		method: 'GET'
+	})
+	assert.equal(allowedEncodedEvents.allowed, true)
+
+	const deniedEncodedOtherCal = evaluatePolicy(policy, {
+		url: '/calendar/v3/calendars/other-team%40group.calendar.google.com/events',
+		method: 'GET'
+	})
+	assert.equal(deniedEncodedOtherCal.allowed, false)
+})
+
+test('evaluatePolicy matches relative paths and origin-scoped rules', () => {
+	const relPolicy = [
+		{ action: 'deny', path: 'drive/v3/files/**' }
+	]
+	assert.equal(evaluatePolicy(relPolicy, { url: '/drive/v3/files/123', method: 'GET' }).allowed, false)
+	assert.equal(evaluatePolicy(relPolicy, { url: '/calendar/v3/calendars', method: 'GET' }).allowed, true)
+
+	const originPolicy = [
+		{ action: 'allow', origin: 'https://sheets.googleapis.com', path: '/v4/spreadsheets/**' },
+		{ action: 'deny' }
+	]
+	assert.equal(evaluatePolicy(originPolicy, { url: 'https://sheets.googleapis.com/v4/spreadsheets/123', method: 'GET' }).allowed, true)
+	assert.equal(evaluatePolicy(originPolicy, { url: 'https://docs.googleapis.com/v4/spreadsheets/123', method: 'GET' }).allowed, false)
+	assert.equal(evaluatePolicy(originPolicy, { url: 'https://www.googleapis.com/drive/v3/files', method: 'GET' }).allowed, false)
+
+	const traversalResult = evaluatePolicy(originPolicy, { url: 'https://sheets.googleapis.com/v4/spreadsheets/public/%2e%2e/secret', method: 'GET' })
+	assert.equal(traversalResult.allowed, false)
+	assert.match(traversalResult.reason, /path traversal/i)
+})
+
+test('evaluatePolicy matches URLs with query parameters in url string', () => {
+	const sheetPolicy = [
+		{ action: 'allow', origin: 'https://sheets.googleapis.com', path: '/v4/spreadsheets/123' },
+		{ action: 'deny' }
+	]
+	assert.equal(evaluatePolicy(sheetPolicy, { url: 'https://sheets.googleapis.com/v4/spreadsheets/123?includeGridData=true' }).allowed, true)
+})
+
+test('executeTool google_api enforces session policy and auth tools decode policy', async () => {
+	const user = db.users.upsert({ email: 'policy-test@example.com' })
+	const policyObj = [
+		{
+			action: 'deny',
+			methods: ['DELETE'],
+			description: 'Deletions are forbidden'
+		},
+		{
+			action: 'allow',
+			path: '/calendar/v3/calendars/work/**'
+		},
+		{
+			action: 'deny',
+			description: 'Work calendar only'
+		}
+	]
+	const session = db.sessions.create({
+		userId: user.id,
+		accessToken: 'ya29.policy-token',
+		policy: JSON.stringify(policyObj)
+	})
+
+	const noTokenSession = db.sessions.create({
+		userId: user.id,
+		policy: JSON.stringify(policyObj)
+	})
+
+	const statusRes = await executeTool('auth', { action: 'status' }, noTokenSession.token)
+	assert.equal(statusRes.isError, undefined)
+	const statusParsed = JSON.parse(statusRes.content[0].text)
+	assert.deepEqual(statusParsed.policy, policyObj)
+
+	const listRes = await executeTool('auth', { action: 'list' }, session.token)
+	assert.equal(listRes.isError, undefined)
+	const listParsed = JSON.parse(listRes.content[0].text)
+	const foundSession = listParsed.sessions.find(s => s.id === session.id)
+	assert.deepEqual(foundSession.policy, policyObj)
+
+	const deniedDeleteRes = await executeTool('google_api', {
+		url: 'https://www.googleapis.com/calendar/v3/calendars/work/events/123',
+		method: 'DELETE'
+	}, session.token)
+	assert.equal(deniedDeleteRes.isError, true)
+	assert.match(deniedDeleteRes.content[0].text, /Policy violation/)
+	assert.match(deniedDeleteRes.content[0].text, /Deletions are forbidden/)
+
+	const deniedPathRes = await executeTool('google_api', {
+		url: 'https://www.googleapis.com/calendar/v3/calendars/personal/events',
+		method: 'GET'
+	}, session.token)
+	assert.equal(deniedPathRes.isError, true)
+	assert.match(deniedPathRes.content[0].text, /Policy violation/)
+	assert.match(deniedPathRes.content[0].text, /Work calendar only/)
+})
+
+test('oauth consent flow with policy', async () => {
+	const addr = server.address()
+	const challenge = 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM'
+	const policyStr = JSON.stringify([
+		{ action: 'deny', methods: ['DELETE'] },
+		{ action: 'allow', path: '/calendar/v3/calendars/my-cal/**' }
+	])
+	const consentBody = new URLSearchParams({
+		redirect_uri: 'https://chatgpt.com/callback',
+		state: 'client-state-policy',
+		code_challenge: challenge,
+		code_challenge_method: 'S256',
+		policy: policyStr
+	})
+	consentBody.append('services', 'calendar')
+	consentBody.append('write', 'calendar')
+	const consentRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize/consent`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/x-www-form-urlencoded' },
+		body: consentBody.toString(),
+		redirect: 'manual'
+	})
+	assert.equal(consentRes.status, 302)
+	const location = consentRes.headers.get('location')
+	const targetUrl = new URL(location)
+	const stateParam = targetUrl.searchParams.get('state')
+	assert.ok(stateParam)
+	const stateRow = db.oauthStates.consume(stateParam)
+	assert.equal(stateRow.policy, policyStr)
+})
+
+test('oauth consent flow rejects invalid json policy', async () => {
+	const addr = server.address()
+	const challenge = 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM'
+	const consentBody = new URLSearchParams({
+		redirect_uri: 'https://chatgpt.com/callback',
+		state: 'client-state-policy',
+		code_challenge: challenge,
+		code_challenge_method: 'S256',
+		policy: '{ invalid-json'
+	})
+	consentBody.append('services', 'calendar')
+
+	const consentRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize/consent`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/x-www-form-urlencoded' },
+		body: consentBody.toString()
+	})
+	assert.equal(consentRes.status, 400)
+	const data = await consentRes.json()
+	assert.equal(data.error, 'invalid_request')
+	assert.match(data.error_description, /Invalid JSON policy/)
+})
+
+test('validatePolicy validates schema and fails fast on errors', () => {
+	assert.equal(validatePolicy(null).valid, true)
+	assert.equal(validatePolicy('').valid, true)
+	assert.equal(validatePolicy('[]').valid, true)
+	assert.equal(validatePolicy([]).valid, true)
+	assert.equal(validatePolicy('not json').valid, false)
+	assert.match(validatePolicy('not json').error, /Invalid JSON policy/)
+	assert.equal(validatePolicy('{}').valid, false)
+	assert.match(validatePolicy('{}').error, /Policy must be a JSON array of rules/)
+	assert.equal(validatePolicy({ rules: [] }).valid, false)
+	assert.match(validatePolicy({ rules: [] }).error, /Policy must be a JSON array of rules/)
+	assert.equal(validatePolicy(['not-an-object']).valid, false)
+	assert.match(validatePolicy(['not-an-object']).error, /Rule at index 0 must be an object/)
+	assert.equal(validatePolicy([{ action: 'invalid' }]).valid, false)
+	assert.match(validatePolicy([{ action: 'invalid' }]).error, /Rule at index 0 action must be "allow" or "deny"/)
+	assert.equal(validatePolicy([{ action: 'allow', method: 'GET' }]).valid, false)
+	assert.match(validatePolicy([{ action: 'allow', method: 'GET' }]).error, /Rule at index 0 has unknown property "method"/)
+	assert.equal(validatePolicy([{ action: 'allow', methods: 'GET' }]).valid, false)
+	assert.match(validatePolicy([{ action: 'allow', methods: 'GET' }]).error, /methods must be an array of HTTP method strings/)
+	assert.equal(validatePolicy([{ action: 'allow', methods: [] }]).valid, false)
+	assert.match(validatePolicy([{ action: 'allow', methods: [] }]).error, /methods must be an array of HTTP method strings/)
+	assert.equal(validatePolicy([{ action: 'allow', methods: ['INVALID_VERB'] }]).valid, false)
+	assert.match(validatePolicy([{ action: 'allow', methods: ['INVALID_VERB'] }]).error, /contains invalid HTTP method "INVALID_VERB"/)
+	assert.equal(validatePolicy([{ action: 'allow', origin: 123 }]).valid, false)
+	assert.match(validatePolicy([{ action: 'allow', origin: 123 }]).error, /Rule at index 0 origin must be an HTTPS origin/)
+	assert.equal(validatePolicy([{ action: 'allow', origin: 'sheets.googleapis.com' }]).valid, false)
+	assert.match(validatePolicy([{ action: 'allow', origin: 'sheets.googleapis.com' }]).error, /Rule at index 0 origin must be an HTTPS origin/)
+	assert.equal(validatePolicy([{ action: 'allow', origin: 'https://sheets.googleapis.com/v4' }]).valid, false)
+	assert.match(validatePolicy([{ action: 'allow', origin: 'https://sheets.googleapis.com/v4' }]).error, /must not contain a path or query/)
+	assert.equal(validatePolicy([{ action: 'allow', path: 123 }]).valid, false)
+	assert.match(validatePolicy([{ action: 'allow', path: 123 }]).error, /Rule at index 0 path must be a non-empty string/)
+	assert.equal(validatePolicy([{ action: 'allow', path: '' }]).valid, false)
+	assert.match(validatePolicy([{ action: 'allow', path: '' }]).error, /Rule at index 0 path must be a non-empty string/)
+	assert.equal(validatePolicy([{ action: 'allow', path: '   ' }]).valid, false)
+	assert.match(validatePolicy([{ action: 'allow', path: '   ' }]).error, /Rule at index 0 path must be a non-empty string/)
+	assert.equal(validatePolicy([{ action: 'allow', path: '/drive/v3/files?q=*' }]).valid, false)
+	assert.match(validatePolicy([{ action: 'allow', path: '/drive/v3/files?q=*' }]).error, /Rule at index 0 path must not contain query parameters/)
+	assert.equal(validatePolicy([{ action: 'allow', path: 'https://sheets.googleapis.com/v4/**' }]).valid, false)
+	assert.match(validatePolicy([{ action: 'allow', path: 'https://sheets.googleapis.com/v4/**' }]).error, /use "origin" to specify hostnames/)
+	assert.equal(validatePolicy([{ action: 'allow', description: 123 }]).valid, false)
+	assert.match(validatePolicy([{ action: 'allow', description: 123 }]).error, /Rule at index 0 description must be a string/)
+	const validPolicy = [
+		{ action: 'allow', methods: ['GET'], origin: 'https://sheets.googleapis.com', path: '/v4/**', description: 'Allow sheets GET' },
+		{ action: 'deny' }
+	]
+	assert.equal(validatePolicy(validPolicy).valid, true)
+	assert.equal(validatePolicy([{ action: 'allow', origin: 'https://sheets.googleapis.com/' }]).valid, true)
+})
+
+test('oauth consent flow rejects invalid schema policy', async () => {
+	const addr = server.address()
+	const challenge = 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM'
+	const consentBody = new URLSearchParams({
+		redirect_uri: 'https://chatgpt.com/callback',
+		state: 'client-state-policy-invalid',
+		code_challenge: challenge,
+		code_challenge_method: 'S256',
+		policy: JSON.stringify([{ action: 'allow', method: 'GET' }])
+	})
+	consentBody.append('services', 'calendar')
+
+	const consentRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize/consent`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/x-www-form-urlencoded' },
+		body: consentBody.toString()
+	})
+	assert.equal(consentRes.status, 400)
+	const data = await consentRes.json()
+	assert.equal(data.error, 'invalid_request')
+	assert.match(data.error_description, /unknown property "method"/)
 })
 
 test('teardown server', (t, done) => {
