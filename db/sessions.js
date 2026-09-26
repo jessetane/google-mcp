@@ -22,6 +22,7 @@ function init () {
 			access_token TEXT,
 			expires_at INTEGER,
 			scope TEXT,
+			policy TEXT,
 			ip TEXT,
 			ua TEXT,
 			created TEXT NOT NULL,
@@ -33,6 +34,7 @@ function init () {
 	`)
 	const columns = sqlite.prepare('PRAGMA table_info(sessions)').all().map(c => c.name)
 	if (!columns.includes('scope')) sqlite.exec('ALTER TABLE sessions ADD COLUMN scope TEXT;')
+	if (!columns.includes('policy')) sqlite.exec('ALTER TABLE sessions ADD COLUMN policy TEXT;')
 }
 
 function formatSession (row) {
@@ -45,6 +47,7 @@ function formatSession (row) {
 		accessToken: row.access_token,
 		expiresAt: row.expires_at,
 		scope: row.scope,
+		policy: row.policy,
 		ip: row.ip,
 		ua: row.ua,
 		created: row.created,
@@ -63,15 +66,16 @@ function create (opts = {}) {
 		accessToken = null,
 		expiresAt = null,
 		scope = null,
+		policy = null,
 		ip = null,
 		ua = null
 	} = opts
 	pruneExpired()
 	const now = new Date().toISOString()
 	sqlite.prepare(`
-		INSERT INTO sessions (id, user_id, token, refresh_token, access_token, expires_at, scope, ip, ua, created, updated)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`).run(id, userId, token, refreshToken, accessToken, expiresAt, scope, ip, ua, now, now)
+		INSERT INTO sessions (id, user_id, token, refresh_token, access_token, expires_at, scope, policy, ip, ua, created, updated)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`).run(id, userId, token, refreshToken, accessToken, expiresAt, scope, policy, ip, ua, now, now)
 	return get(id)
 }
 
@@ -101,7 +105,7 @@ function listByUserId (userId) {
 	if (!userId) return []
 	pruneExpired()
 	const rows = sqlite.prepare(`
-		SELECT id, user_id, scope, ip, ua, created, updated
+		SELECT id, user_id, scope, policy, ip, ua, created, updated
 		FROM sessions
 		WHERE user_id = ?
 		ORDER BY created DESC
@@ -110,6 +114,7 @@ function listByUserId (userId) {
 		id: r.id,
 		userId: r.user_id,
 		scope: r.scope,
+		policy: r.policy,
 		ip: r.ip,
 		ua: r.ua,
 		created: r.created,
@@ -141,6 +146,4 @@ function updateTokens (id, opts = {}) {
 function pruneExpired (maxAgeMs = 60 * 24 * 60 * 60 * 1000) {
 	const minDate = new Date(Date.now() - maxAgeMs).toISOString()
 	sqlite.prepare('DELETE FROM sessions WHERE updated < ?').run(minDate)
-	sqlite.prepare('DELETE FROM oauth_states WHERE created_at < ?').run(Date.now() - (15 * 60 * 1000))
-	sqlite.prepare('DELETE FROM oauth_codes WHERE created_at < ?').run(Date.now() - (10 * 60 * 1000))
 }
