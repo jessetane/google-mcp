@@ -18,10 +18,30 @@ A Google Cloud project with OAuth credentials is required:
 
 ## Usage
 
-### Authorization & Scope Selection
+### Authorization, Scope Selection & Granular Access Control
 
-* **Interactive Scope Selection (Default for Claude & ChatGPT)**: Visiting `<APP_URL>/oauth/authorize` displays a consent screen where users select which Google services to enable. All services are **read-only by default**; checking the **Write** column grants full read/write privileges for that service.  
+* **Interactive Scope Selection**: Visiting `<APP_URL>/oauth/authorize` displays a consent screen where users select which Google services to enable. All services are **read-only by default**; checking the **Write** column grants write privileges for that service.  
 * **Enterprise Scopes**: Scopes marked with `*` (Google Keep) are restricted by Google to enterprise Workspace accounts and will fail if requested from a personal (`@gmail.com`) account.  
+* **Granular Access Control Policies (JSON)**: In the authorize screen, users can specify an optional JSON policy attached to the minted token to restrict sub-resources or operations beyond Google's coarse-grained OAuth scopes. Rules are evaluated sequentially from top to bottom (the first matching rule wins; if no rules match, the request is allowed by default):
+
+```json
+[
+	{
+		"action": "allow",
+		"methods": ["GET"],
+		"path": "/calendar/v3/calendars/team-schedule@group.calendar.google.com"
+	},
+	{
+		"action": "allow",
+		"path": "/calendar/v3/calendars/team-schedule@group.calendar.google.com/events/**"
+	},
+	{
+		"action": "deny"
+	}
+]
+```
+
+When configured, any agent tool call violating the policy is blocked locally at the MCP server with a clean policy violation message before contacting Google.  
 
 ### ChatGPT
 Go to **Plugins** → **New Plugin**:
