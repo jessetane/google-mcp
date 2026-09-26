@@ -25,7 +25,11 @@ function resolveToken (req) {
 }
 
 const rpcMethods = {
-	initialize: () => {
+	initialize: params => {
+		if (process.env.NODE_ENV !== 'test') {
+			const client = params?.clientInfo ? `${params.clientInfo.name || 'unknown'}/${params.clientInfo.version || ''}` : 'unknown'
+			console.log(`[mcp] initialize (client: ${client}, protocol: ${params?.protocolVersion || 'unknown'})`)
+		}
 		return {
 			protocolVersion: '2024-11-05',
 			capabilities: { tools: { listChanged: false } },
@@ -33,23 +37,36 @@ const rpcMethods = {
 		}
 	},
 	'notifications/initialized': () => {
+		if (process.env.NODE_ENV !== 'test') {
+			console.log('[mcp] notifications/initialized')
+		}
 		return {}
 	},
 	ping: () => {
+		if (process.env.NODE_ENV !== 'test') {
+			console.log('[mcp] ping')
+		}
 		return {}
 	},
 	'tools/list': () => {
+		if (process.env.NODE_ENV !== 'test') {
+			console.log('[mcp] tools/list')
+		}
 		return { tools }
 	},
 	'tools/call': (params, token) => {
 		const name = params?.name
 		const args = { ...params?.arguments }
+		if (process.env.NODE_ENV !== 'test') {
+			console.log(`[mcp] tools/call: name=${name || '(missing)'} args=${JSON.stringify(args)}`)
+		}
 		return executeTool(name, args, token)
 	}
 }
 
 async function handleMcp (req, res, token) {
 	if (req.method !== 'POST') {
+		console.warn(`[mcp] Rejected non-POST request to /mcp: ${req.method}`)
 		const err = new Error('Method Not Allowed')
 		err.code = 405
 		throw err
@@ -57,8 +74,12 @@ async function handleMcp (req, res, token) {
 	const rpc = new RpcEngine({
 		objectMode: true,
 		deserialize: data => {
-			data = JSON.parse(data)
-			return data
+			try {
+				return JSON.parse(data)
+			} catch (err) {
+				console.warn(`[mcp] JSON-RPC parse error: ${err.message}`)
+				throw err
+			}
 		},
 		serialize: data => {
 			data = typeof data === 'object' && !data?.jsonrpc
@@ -110,6 +131,10 @@ const server = http.createServer(async (req, res) => {
 	}
 	const url = new URL(req.url, 'http://localhost')
 	const query = Object.fromEntries(url.searchParams)
+	for (const key of ['services', 'write']) {
+		const all = url.searchParams.getAll(key)
+		if (all.length > 1) query[key] = all.join(',')
+	}
 	const pathname = url.pathname.replace(/\/+$/, '') || '/'
 	try {
 		if (pathname === '/') {

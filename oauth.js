@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import * as db from './db/index.js'
 import { getUserInfo, revokeGoogleToken, baseScopes, services, buildScopesFromSelection } from './google.js'
 import { getBody } from './util.js'
+import { validatePolicy } from './policy.js'
 
 export {
 	handleAuthorize,
@@ -127,6 +128,7 @@ function redirectToGoogle (res, req, opts = {}) {
 		state = null,
 		codeChallenge = null,
 		codeChallengeMethod = null,
+		policy = null,
 		scopes = baseScopes.join(' ')
 	} = opts
 	const callbackUrl = `${appUrl.replace(/\/$/, '')}/oauth/callback`
@@ -136,6 +138,7 @@ function redirectToGoogle (res, req, opts = {}) {
 		clientState: state,
 		codeChallenge,
 		codeChallengeMethod,
+		policy,
 		ip
 	})
 	const u = new URL('https://accounts.google.com/o/oauth2/v2/auth')
@@ -187,14 +190,33 @@ async function handleAuthorizeConsent (req, res) {
 	const params = new URLSearchParams(rawBody)
 
 	const query = {}
-	const selectedServices = []
-	const writeServiceIds = []
+	const serviceIdsRead = []
+	const serviceIdsWrite = []
+	let policy = null
 
 	for (const [key, value] of params.entries()) {
 		if (key === 'services') {
-			selectedServices.push(value)
-		} else if (key.startsWith('write_') && value === '1') {
-			writeServiceIds.push(key.slice('write_'.length))
+			for (const v of value.split(',')) {
+				const s = v.trim()
+				if (s) serviceIdsRead.push(s)
+			}
+		} else if (key === 'write') {
+			for (const v of value.split(',')) {
+				const s = v.trim()
+				if (s) serviceIdsWrite.push(s)
+			}
+		} else if (key === 'policy') {
+			const trimmed = value.trim()
+			if (trimmed) {
+				const validation = validatePolicy(trimmed)
+				if (!validation.valid) {
+					res.statusCode = 400
+					res.setHeader('content-type', 'application/json; charset=utf-8')
+					res.end(JSON.stringify({ error: 'invalid_request', error_description: validation.error }))
+					return
+				}
+				policy = trimmed
+			}
 		} else {
 			query[key] = value
 		}
@@ -211,8 +233,8 @@ async function handleAuthorizeConsent (req, res) {
 	}
 	const { codeChallenge, codeChallengeMethod } = validation
 
-	const scopes = selectedServices.length > 0
-		? buildScopesFromSelection(selectedServices, writeServiceIds)
+	const scopes = serviceIdsRead.length > 0
+		? buildScopesFromSelection(serviceIdsRead, serviceIdsWrite)
 		: baseScopes.join(' ')
 
 	redirectToGoogle(res, req, {
@@ -220,6 +242,7 @@ async function handleAuthorizeConsent (req, res) {
 		state: query.state || null,
 		codeChallenge,
 		codeChallengeMethod,
+		policy,
 		scopes
 	})
 }
@@ -281,6 +304,7 @@ async function handleCallback (req, res, query) {
 		accessToken: tokenData.access_token,
 		expiresAt: Date.now() + ((tokenData.expires_in || 3600) * 1000),
 		scope: tokenData.scope || null,
+		policy: oauthState.policy || null,
 		ip,
 		ua
 	})

@@ -96,6 +96,36 @@
 				margin-bottom: 1.5rem;
 			}
 
+			.policy-section {
+				margin-bottom: 1.5rem;
+			}
+
+			.policy-section summary {
+				font-size: 0.9rem;
+				font-weight: bold;
+				cursor: pointer;
+				margin-bottom: 0.5rem;
+				color: #333;
+			}
+
+			.policy-section textarea {
+				width: 100%;
+				height: 120px;
+				font-family: monospace;
+				font-size: 0.8rem;
+				padding: 8px;
+				border: 1px solid #ccc;
+				border-radius: 4px;
+				resize: vertical;
+				box-sizing: border-box;
+			}
+
+			.policy-hint {
+				font-size: 0.75rem;
+				color: #777;
+				margin-top: 0.25rem;
+			}
+
 			button[type=submit] {
 				width: 100%;
 				padding: 11px 16px;
@@ -138,6 +168,24 @@
 				<div class="footnote">
 					<span class="enterprise-mark">*</span> Restricted to enterprise Google Workspace accounts with domain-wide delegation. Requests from personal accounts will fail if selected.
 				</div>
+				<details class="policy-section">
+					<summary>Granular Access Control (Policy JSON)</summary>
+					<textarea name="policy" id="policy" placeholder='[
+  {
+    "action": "allow",
+    "methods": ["GET"],
+    "path": "/calendar/v3/calendars/team-schedule@group.calendar.google.com"
+  },
+  {
+    "action": "allow",
+    "path": "/calendar/v3/calendars/team-schedule@group.calendar.google.com/events/**"
+  },
+  {
+    "action": "deny"
+  }
+]'></textarea>
+					<div class="policy-hint">Optional. Define sequential URL path and method match rules (first matching rule wins). If left blank, full access granted by selected scopes is allowed.</div>
+				</details>
 				<button type="submit">Sign in with Google</button>
 			</form>
 		</div>
@@ -152,13 +200,11 @@
 				if (services.length === 0) return
 				let readCount = 0
 				let writeCount = 0
-				let eligibleWriteCount = 0
 				for (const s of services) {
 					const id = s.value
 					const w = document.getElementById('wr_' + id)
 					if (s.checked) {
 						readCount++
-						eligibleWriteCount++
 						if (w && w.checked) writeCount++
 					}
 				}
@@ -169,8 +215,8 @@
 					allWrite.checked = false
 					allWrite.indeterminate = false
 				} else {
-					allWrite.checked = eligibleWriteCount > 0 && writeCount === eligibleWriteCount
-					allWrite.indeterminate = writeCount > 0 && writeCount < eligibleWriteCount
+					allWrite.checked = readCount > 0 && writeCount === readCount
+					allWrite.indeterminate = writeCount > 0 && writeCount < readCount
 				}
 			}
 
@@ -184,8 +230,31 @@
 			}
 
 			function init () {
+				const params = initData.params || {}
+				const policyVal = params.policy
+				if (policyVal) {
+					const policyEl = document.getElementById('policy')
+					if (policyEl) policyEl.value = policyVal
+					policyEl?.closest('details')?.setAttribute('open', '')
+				}
+				let serviceIdsRead = null
+				if (params.services) {
+					serviceIdsRead = new Set()
+					for (const part of String(params.services).split(',')) {
+						const s = part.trim().toLowerCase()
+						if (s) serviceIdsRead.add(s)
+					}
+				}
+				const serviceIdsWrite = new Set()
+				if (params.write) {
+					for (const part of String(params.write).split(',')) {
+						const w = part.trim().toLowerCase()
+						if (w) serviceIdsWrite.add(w)
+					}
+				}
 				const hiddenContainer = document.getElementById('hidden-inputs')
-				for (const [key, value] of Object.entries(initData.params || {})) {
+				for (const [key, value] of Object.entries(params)) {
+					if (key === 'policy' || key === 'services' || key === 'write') continue
 					const input = document.createElement('input')
 					input.type = 'hidden'
 					input.name = key
@@ -205,7 +274,8 @@
 						spanName.appendChild(mark)
 					}
 					tdSvc.appendChild(spanName)
-
+					const isReadChecked = serviceIdsRead ? serviceIdsRead.has(s.id) : !s.enterprise
+					const isWriteChecked = isReadChecked && serviceIdsWrite.has(s.id)
 					const tdRead = document.createElement('td')
 					tdRead.className = 'col-check'
 					const inputSvc = document.createElement('input')
@@ -213,26 +283,24 @@
 					inputSvc.name = 'services'
 					inputSvc.id = 'svc_' + s.id
 					inputSvc.value = s.id
-					inputSvc.setAttribute('data-enterprise', s.enterprise ? '1' : '0')
-					inputSvc.checked = !s.enterprise
+					inputSvc.checked = isReadChecked
 					inputSvc.addEventListener('change', function () {
 						onServiceToggle(s.id)
 					})
 					tdRead.appendChild(inputSvc)
-
 					const tdWrite = document.createElement('td')
 					tdWrite.className = 'col-check'
 					const inputWr = document.createElement('input')
 					inputWr.type = 'checkbox'
-					inputWr.name = 'write_' + s.id
+					inputWr.name = 'write'
 					inputWr.id = 'wr_' + s.id
-					inputWr.value = '1'
-					inputWr.disabled = !inputSvc.checked
+					inputWr.value = s.id
+					inputWr.checked = isWriteChecked
+					inputWr.disabled = !isReadChecked
 					inputWr.addEventListener('change', function () {
 						updateAllRowState()
 					})
 					tdWrite.appendChild(inputWr)
-
 					tr.appendChild(tdSvc)
 					tr.appendChild(tdRead)
 					tr.appendChild(tdWrite)
