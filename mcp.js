@@ -1,5 +1,6 @@
 import * as db from './db/index.js'
 import { proxyGoogleApi, getFreshGoogleToken, getUserInfo, revokeGoogleToken } from './google.js'
+import { evaluatePolicy, parsePolicy } from './policy.js'
 
 export {
 	tools,
@@ -62,6 +63,26 @@ const tools = [
 ]
 
 async function executeTool (name, args = {}, token) {
+	if (!name || typeof name !== 'string') {
+		console.warn('[mcp] tools/call rejected: Missing tool name')
+		return {
+			isError: true,
+			content: [{
+				type: 'text',
+				text: 'Tool name is required'
+			}]
+		}
+	}
+	if (name !== 'auth' && name !== 'google_api') {
+		console.warn(`[mcp] tools/call rejected: Unknown tool "${name}"`)
+		return {
+			isError: true,
+			content: [{
+				type: 'text',
+				text: `Unknown tool: ${name}`
+			}]
+		}
+	}
 	if (name === 'auth') {
 		const action = args.action || 'status'
 		const appUrl = process.env.APP_URL || 'http://localhost:8080'
@@ -73,7 +94,7 @@ async function executeTool (name, args = {}, token) {
 					const authInfo = await getFreshGoogleToken(token)
 					googleToken = authInfo?.token || null
 				} catch (err) {
-					console.warn('Failed to refresh Google token during status check:', err.message)
+					console.warn('[mcp] Failed to refresh Google token during status check:', err.message)
 				}
 				if (googleToken) {
 					try {
@@ -85,6 +106,7 @@ async function executeTool (name, args = {}, token) {
 									authenticated: true,
 									email: user.email,
 									scope: session.scope ?? null,
+									policy: parsePolicy(session.policy),
 									currentSession: {
 										id: session.id,
 										ip: session.ip,
@@ -96,6 +118,7 @@ async function executeTool (name, args = {}, token) {
 							}]
 						}
 					} catch (err) {
+						console.warn('[mcp] Failed to verify Google token during status check:', err.message)
 						return {
 							isError: true,
 							content: [{
@@ -112,6 +135,7 @@ async function executeTool (name, args = {}, token) {
 							authenticated: true,
 							email: session.email,
 							scope: session.scope ?? null,
+							policy: parsePolicy(session.policy),
 							currentSession: {
 								id: session.id,
 								ip: session.ip,
@@ -145,7 +169,7 @@ async function executeTool (name, args = {}, token) {
 				}
 			}
 			const rawSessions = db.sessions.listByUserId(session.userId)
-			const sessions = rawSessions.map(s => ({ ...s, isCurrent: s.id === session.id }))
+			const sessions = rawSessions.map(s => ({ ...s, policy: parsePolicy(s.policy), isCurrent: s.id === session.id }))
 			return {
 				content: [{
 					type: 'text',
@@ -230,6 +254,7 @@ async function executeTool (name, args = {}, token) {
 				}]
 			}
 		}
+		console.warn(`[mcp] auth action rejected: Unknown action "${action}"`)
 		return {
 			isError: true,
 			content: [{
@@ -238,11 +263,11 @@ async function executeTool (name, args = {}, token) {
 			}]
 		}
 	}
-
 	let authInfo = null
 	try {
 		authInfo = await getFreshGoogleToken(token)
 	} catch (err) {
+		console.warn(`[mcp] Failed to refresh Google access token: ${err.message}`)
 		return {
 			isError: true,
 			content: [{
@@ -251,10 +276,10 @@ async function executeTool (name, args = {}, token) {
 			}]
 		}
 	}
-
 	const googleToken = authInfo?.token || null
 	if (!googleToken) {
 		const appUrl = process.env.APP_URL || 'http://localhost:8080'
+		console.warn('[mcp] google_api rejected: Authentication required')
 		return {
 			isError: true,
 			content: [{
@@ -263,19 +288,24 @@ async function executeTool (name, args = {}, token) {
 			}]
 		}
 	}
-
-	if (name !== 'google_api') {
-		return {
-			isError: true,
-			content: [{
-				type: 'text',
-				text: `Unknown tool: ${name}`
-			}]
+	const method = (args.method || 'GET').toUpperCase()
+	const session = authInfo.session
+	if (session?.policy) {
+		const check = evaluatePolicy(session.policy, {
+			url: args.url,
+			method
+		})
+		if (!check.allowed) {
+			console.warn(`[mcp] google_api policy violation: ${check.reason || 'Operation not permitted by session policy'}`)
+			return {
+				isError: true,
+				content: [{
+					type: 'text',
+					text: `Policy violation: ${check.reason || 'Operation not permitted by session policy'}`
+				}]
+			}
 		}
 	}
-
-	const method = (args.method || 'GET').toUpperCase()
-
 	try {
 		const result = await proxyGoogleApi({
 			token: googleToken,
@@ -314,6 +344,7 @@ async function executeTool (name, args = {}, token) {
 			}]
 		}
 	} catch (err) {
+		console.warn(`[mcp] google_api error (${err.status || 500}): ${err.message}`)
 		return {
 			isError: true,
 			content: [{
