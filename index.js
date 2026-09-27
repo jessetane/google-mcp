@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import RpcEngine from 'rpc-engine'
 import * as oauth from './oauth.js'
 import * as google from './google.js'
+import * as api from './api/index.js'
 import { tools, executeTool } from './mcp.js'
 import { getBody } from './util.js'
 
@@ -149,6 +150,95 @@ const server = http.createServer(async (req, res) => {
 			res.statusCode = 200
 			res.setHeader('content-type', 'text/plain')
 			res.end('ok\n')
+			return
+		}
+		if (pathname === '/api/whoami') {
+			if (req.method !== 'GET') {
+				const err = new Error('Method Not Allowed')
+				err.code = 405
+				throw err
+			}
+			const token = resolveToken(req)
+			const result = await api.auth.whoami(token)
+			res.statusCode = 200
+			res.setHeader('content-type', 'application/json; charset=utf-8')
+			res.end(JSON.stringify(result, null, '\t'))
+			return
+		}
+		if (pathname === '/api/sessions') {
+			const token = resolveToken(req)
+			if (req.method === 'GET') {
+				const result = await api.auth.list(token)
+				res.statusCode = 200
+				res.setHeader('content-type', 'application/json; charset=utf-8')
+				res.end(JSON.stringify(result, null, '\t'))
+				return
+			}
+			if (req.method === 'DELETE') {
+				const result = await api.auth.revoke(token, {
+					allOthers: query.allOthers === 'true'
+				})
+				res.statusCode = 200
+				res.setHeader('content-type', 'application/json; charset=utf-8')
+				res.end(JSON.stringify(result, null, '\t'))
+				return
+			}
+			const err = new Error('Method Not Allowed')
+			err.code = 405
+			throw err
+		}
+		if (pathname.startsWith('/api/sessions/')) {
+			const token = resolveToken(req)
+			const sessionId = pathname.slice('/api/sessions/'.length)
+			if (req.method === 'GET') {
+				const result = await api.auth.get(token, sessionId)
+				res.statusCode = 200
+				res.setHeader('content-type', 'application/json; charset=utf-8')
+				res.end(JSON.stringify(result, null, '\t'))
+				return
+			}
+			if (req.method === 'DELETE') {
+				const result = await api.auth.revoke(token, { sessionId })
+				res.statusCode = 200
+				res.setHeader('content-type', 'application/json; charset=utf-8')
+				res.end(JSON.stringify(result, null, '\t'))
+				return
+			}
+			const err = new Error('Method Not Allowed')
+			err.code = 405
+			throw err
+		}
+		if (pathname === '/api/google' || pathname.startsWith('/api/google/')) {
+			const token = resolveToken(req)
+			let targetUrl = pathname.startsWith('/api/google/') ? pathname.slice('/api/google/'.length) : (query.url || '')
+			let body = undefined
+			if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
+				body = await getBody(req)
+				if (typeof body === 'string' && body.trim().startsWith('{')) {
+					try {
+						body = JSON.parse(body)
+					} catch {}
+				}
+				if (!targetUrl && body?.url) {
+					targetUrl = body.url
+					delete body.url
+				}
+			}
+			const result = await api.google.request({
+				url: targetUrl,
+				method: req.method,
+				query,
+				body
+			}, token)
+			if (result?.binary) {
+				res.statusCode = 200
+				res.setHeader('content-type', result.mimeType || 'application/octet-stream')
+				res.end(Buffer.from(result.data, 'base64'))
+				return
+			}
+			res.statusCode = 200
+			res.setHeader('content-type', 'application/json; charset=utf-8')
+			res.end(typeof result === 'string' ? result : JSON.stringify(result, null, '\t'))
 			return
 		}
 		if (pathname === '/.well-known/oauth-protected-resource') {
