@@ -1,8 +1,11 @@
+import RpcEngine from 'rpc-engine'
 import * as api from './api/index.js'
+import { getBody } from './util.js'
 
 export {
 	tools,
-	executeTool
+	executeTool,
+	handleMcp
 }
 
 const tools = [
@@ -60,161 +63,172 @@ const tools = [
 	}
 ]
 
+const authActions = {
+	whoami: (args, token) => api.auth.whoami(token),
+	status: (args, token) => api.auth.whoami(token),
+	list: (args, token) => api.auth.list(token),
+	get: (args, token) => api.auth.get(token, args.sessionId),
+	revoke: (args, token) => api.auth.revoke(token, args)
+}
+
+const toolHandlers = {
+	auth (args, token) {
+		const action = args.action || 'whoami'
+		const handle = authActions[action]
+		if (!handle) {
+			console.warn(`[mcp] auth action rejected: Unknown action "${action}"`)
+			const err = new Error(`Unknown action: ${action}`)
+			err.status = 400
+			throw err
+		}
+		return handle(args, token)
+	},
+	google_api (args, token) {
+		return api.google.request(args, token)
+	}
+}
+
+function formatContent (result) {
+	if (result?.binary) {
+		if (result.mimeType?.startsWith('image/')) {
+			return [{ type: 'image', data: result.data, mimeType: result.mimeType }]
+		}
+		return [{
+			type: 'text',
+			text: JSON.stringify({
+				mimeType: result.mimeType,
+				...(result.charset && { charset: result.charset }),
+				encoding: 'base64',
+				data: result.data
+			}, null, '\t')
+		}]
+	}
+	return [{
+		type: 'text',
+		text: typeof result === 'string' ? result : JSON.stringify(result, null, '\t')
+	}]
+}
+
+function formatError (err) {
+	if (err.message?.startsWith('Policy violation:')) {
+		console.warn(`[mcp] google_api policy violation: ${err.message.replace(/^Policy violation:\s*/, '')}`)
+	} else if (err.message?.startsWith('Authentication required:')) {
+		console.warn('[mcp] google_api rejected: Authentication required')
+	} else if (err.message?.startsWith('Failed to refresh Google access token:')) {
+		console.warn(`[mcp] ${err.message}`)
+	} else if (err.status) {
+		console.warn(`[mcp] google_api error (${err.status}): ${err.message}`)
+		return {
+			isError: true,
+			content: [{ type: 'text', text: `Google API Error (${err.status}): ${err.message}` }]
+		}
+	}
+	return {
+		isError: true,
+		content: [{ type: 'text', text: err.message }]
+	}
+}
+
 async function executeTool (name, args = {}, token) {
 	if (!name || typeof name !== 'string') {
 		console.warn('[mcp] tools/call rejected: Missing tool name')
-		return {
-			isError: true,
-			content: [{
-				type: 'text',
-				text: 'Tool name is required'
-			}]
-		}
+		return { isError: true, content: [{ type: 'text', text: 'Tool name is required' }] }
 	}
-	if (name !== 'auth' && name !== 'google_api') {
+	const handler = toolHandlers[name]
+	if (!handler) {
 		console.warn(`[mcp] tools/call rejected: Unknown tool "${name}"`)
-		return {
-			isError: true,
-			content: [{
-				type: 'text',
-				text: `Unknown tool: ${name}`
-			}]
-		}
-	}
-	if (name === 'auth') {
-		const action = args.action || 'whoami'
-		try {
-			if (action === 'whoami' || action === 'status') {
-				const result = await api.auth.whoami(token)
-				return {
-					content: [{
-						type: 'text',
-						text: JSON.stringify(result, null, '\t')
-					}]
-				}
-			}
-			if (action === 'list') {
-				const result = await api.auth.list(token)
-				return {
-					content: [{
-						type: 'text',
-						text: JSON.stringify(result, null, '\t')
-					}]
-				}
-			}
-			if (action === 'get') {
-				const result = await api.auth.get(token, args.sessionId)
-				return {
-					content: [{
-						type: 'text',
-						text: JSON.stringify(result, null, '\t')
-					}]
-				}
-			}
-			if (action === 'revoke') {
-				const result = await api.auth.revoke(token, {
-					sessionId: args.sessionId,
-					allOthers: args.allOthers
-				})
-				return {
-					content: [{
-						type: 'text',
-						text: JSON.stringify(result, null, '\t')
-					}]
-				}
-			}
-		} catch (err) {
-			return {
-				isError: true,
-				content: [{
-					type: 'text',
-					text: err.message
-				}]
-			}
-		}
-		console.warn(`[mcp] auth action rejected: Unknown action "${action}"`)
-		return {
-			isError: true,
-			content: [{
-				type: 'text',
-				text: `Unknown action: ${action}`
-			}]
-		}
+		return { isError: true, content: [{ type: 'text', text: `Unknown tool: ${name}` }] }
 	}
 	try {
-		const result = await api.google.request({
-			url: args.url,
-			method: args.method,
-			query: args.query,
-			body: args.body,
-			headers: args.headers
-		}, token)
-		if (result?.binary) {
-			if (result.mimeType?.startsWith('image/')) {
-				return {
-					content: [{
-						type: 'image',
-						data: result.data,
-						mimeType: result.mimeType
-					}]
-				}
-			}
-			return {
-				content: [{
-					type: 'text',
-					text: JSON.stringify({
-						mimeType: result.mimeType,
-						...(result.charset && { charset: result.charset }),
-						encoding: 'base64',
-						data: result.data
-					}, null, '\t')
-				}]
-			}
-		}
-		return {
-			content: [{
-				type: 'text',
-				text: typeof result === 'string' ? result : JSON.stringify(result, null, '\t')
-			}]
-		}
+		const result = await handler(args, token)
+		return { content: formatContent(result) }
 	} catch (err) {
-		if (err.message?.startsWith('Policy violation:')) {
-			console.warn(`[mcp] google_api policy violation: ${err.message.replace(/^Policy violation:\s*/, '')}`)
-			return {
-				isError: true,
-				content: [{
-					type: 'text',
-					text: err.message
-				}]
-			}
+		return formatError(err)
+	}
+}
+
+const rpcMethods = {
+	initialize: params => {
+		if (process.env.NODE_ENV !== 'test') {
+			const client = params?.clientInfo ? `${params.clientInfo.name || 'unknown'}/${params.clientInfo.version || ''}` : 'unknown'
+			console.log(`[mcp] initialize (client: ${client}, protocol: ${params?.protocolVersion || 'unknown'})`)
 		}
-		if (err.message?.startsWith('Authentication required:')) {
-			console.warn('[mcp] google_api rejected: Authentication required')
-			return {
-				isError: true,
-				content: [{
-					type: 'text',
-					text: err.message
-				}]
-			}
-		}
-		if (err.message?.startsWith('Failed to refresh Google access token:')) {
-			console.warn(`[mcp] ${err.message}`)
-			return {
-				isError: true,
-				content: [{
-					type: 'text',
-					text: err.message
-				}]
-			}
-		}
-		console.warn(`[mcp] google_api error (${err.status || 500}): ${err.message}`)
 		return {
-			isError: true,
-			content: [{
-				type: 'text',
-				text: err.status ? `Google API Error (${err.status}): ${err.message}` : err.message
-			}]
+			protocolVersion: '2024-11-05',
+			capabilities: { tools: { listChanged: false } },
+			serverInfo: { name: 'google-mcp', version: '1.0.0' }
 		}
+	},
+	'notifications/initialized': () => {
+		if (process.env.NODE_ENV !== 'test') {
+			console.log('[mcp] notifications/initialized')
+		}
+		return {}
+	},
+	ping: () => {
+		if (process.env.NODE_ENV !== 'test') {
+			console.log('[mcp] ping')
+		}
+		return {}
+	},
+	'tools/list': () => {
+		if (process.env.NODE_ENV !== 'test') {
+			console.log('[mcp] tools/list')
+		}
+		return { tools }
+	},
+	'tools/call': (params, token) => {
+		const name = params?.name
+		const args = { ...params?.arguments }
+		if (process.env.NODE_ENV !== 'test') {
+			console.log(`[mcp] tools/call: name=${name || '(missing)'} args=${JSON.stringify(args)}`)
+		}
+		return executeTool(name, args, token)
+	}
+}
+
+async function handleMcp (req, res, token) {
+	if (req.method !== 'POST') {
+		console.warn(`[mcp] Rejected non-POST request to /mcp: ${req.method}`)
+		const err = new Error('Method Not Allowed')
+		err.code = 405
+		throw err
+	}
+	const rpc = new RpcEngine({
+		objectMode: true,
+		deserialize: data => {
+			try {
+				return JSON.parse(data)
+			} catch (err) {
+				console.warn(`[mcp] JSON-RPC parse error: ${err.message}`)
+				throw err
+			}
+		},
+		serialize: data => {
+			data = typeof data === 'object' && !data?.jsonrpc
+				? { ...data, jsonrpc: '2.0' }
+				: data
+			return JSON.stringify(data)
+		},
+		send: data => {
+			if (data) {
+				res.statusCode = 200
+				res.setHeader('content-type', 'application/json; charset=utf-8')
+				res.end(data)
+			} else {
+				res.statusCode = 202
+				res.setHeader('content-type', 'application/json; charset=utf-8')
+				res.end(JSON.stringify({ status: 'accepted' }))
+			}
+		}
+	})
+	rpc.methods = {
+		...rpcMethods,
+		'tools/call': params => rpcMethods['tools/call'](params, token)
+	}
+	const request = await getBody(req)
+	await rpc.receive(request)
+	if (!res.writableEnded) {
+		rpc.send()
 	}
 }
