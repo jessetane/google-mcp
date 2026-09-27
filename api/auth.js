@@ -12,55 +12,33 @@ export {
 async function whoami (token) {
 	const appUrl = process.env.APP_URL || 'http://localhost:8080'
 	const session = db.sessions.getByToken(token)
-	if (session) {
-		let googleToken = null
-		try {
-			const authInfo = await getFreshGoogleToken(token)
-			googleToken = authInfo?.token || null
-		} catch (err) {
-			console.warn('[api] Failed to refresh Google token during status check:', err.message)
-		}
-		if (googleToken) {
-			try {
-				const user = await getUserInfo(googleToken)
-				return {
-					authenticated: true,
-					email: user.email,
-					scope: session.scope ?? null,
-					policy: parsePolicy(session.policy),
-					currentSession: {
-						id: session.id,
-						ip: session.ip,
-						ua: session.ua,
-						created: session.created,
-						updated: session.updated
-					}
-				}
-			} catch (err) {
-				console.warn('[api] Failed to verify Google token during status check:', err.message)
-				const error = new Error(`Failed to verify Google token: ${err.message}`)
-				error.status = 502
-				throw error
-			}
-		}
+	if (!session) {
 		return {
-			authenticated: true,
-			email: session.email,
-			scope: session.scope ?? null,
-			policy: parsePolicy(session.policy),
-			currentSession: {
-				id: session.id,
-				ip: session.ip,
-				ua: session.ua,
-				created: session.created,
-				updated: session.updated
-			}
+			authenticated: false,
+			signInUrl: `${appUrl.replace(/\/$/, '')}/oauth/authorize`,
+			message: 'Missing or expired Google Bearer token.'
 		}
 	}
+	let authInfo = null
+	try {
+		authInfo = await getFreshGoogleToken(token)
+	} catch (err) {
+		const error = new Error(`Failed to refresh Google access token: ${err.message}`)
+		error.status = 401
+		throw error
+	}
 	return {
-		authenticated: false,
-		signInUrl: `${appUrl.replace(/\/$/, '')}/oauth/authorize`,
-		message: 'Missing or expired Google Bearer token.'
+		authenticated: true,
+		email: session.email,
+		scope: session.scope ?? null,
+		policy: parsePolicy(session.policy),
+		currentSession: {
+			id: session.id,
+			ip: session.ip,
+			ua: session.ua,
+			created: session.created,
+			updated: session.updated
+		}
 	}
 }
 
