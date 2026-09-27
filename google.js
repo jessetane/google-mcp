@@ -250,29 +250,35 @@ async function readResponseBody (res, maxBytes) {
 	return Buffer.concat(chunks)
 }
 
+function normalizeTargetUrl (targetUrl) {
+	if (!targetUrl || typeof targetUrl !== 'string') return ''
+	let clean = targetUrl.trim()
+	if (clean.startsWith('https:/') && !clean.startsWith('https://')) {
+		clean = clean.replace(/^https:\/+/, 'https://')
+	}
+	if (clean.startsWith('http://') || clean.startsWith('https://')) {
+		return clean
+	}
+	const noLeadingSlash = clean.replace(/^\/+/, '')
+	if (/^[a-zA-Z0-9-]+\.googleapis\.com(\/|$)/i.test(noLeadingSlash)) {
+		return `https://${noLeadingSlash}`
+	}
+	return `https://www.googleapis.com/${noLeadingSlash}`
+}
+
 async function proxyGoogleApi (opts = {}) {
-	const { token, url: targetUrl, method = 'GET', query, body, headers = {} } = opts
+	const { token, url: targetUrl, method = 'GET', body, headers = {} } = opts
 	if (!targetUrl) {
 		const err = new Error('Missing url parameter')
 		err.status = 400
 		throw err
 	}
-	let fullUrl = targetUrl.startsWith('http://') || targetUrl.startsWith('https://')
-		? targetUrl
-		: `https://www.googleapis.com/${targetUrl.replace(/^\//, '')}`
+	const fullUrl = normalizeTargetUrl(targetUrl)
 
 	if (!isGoogleApiUrl(fullUrl)) {
 		const err = new Error(`Target URL domain not allowed. Requests must target *.googleapis.com, got: ${fullUrl}`)
 		err.status = 403
 		throw err
-	}
-
-	if (query && typeof query === 'object' && Object.keys(query).length > 0) {
-		const parsed = new URL(fullUrl)
-		for (const [k, v] of Object.entries(query)) {
-			if (v !== undefined && v !== null) parsed.searchParams.append(k, String(v))
-		}
-		fullUrl = parsed.toString()
 	}
 
 	const reqHeaders = {

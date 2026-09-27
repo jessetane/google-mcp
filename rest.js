@@ -17,25 +17,27 @@ function sendBinary (res, data, mimeType = 'application/octet-stream') {
 	res.end(Buffer.from(data, 'base64'))
 }
 
-async function handleGoogle (req, res, pathname, query, token) {
-	let targetUrl = pathname.startsWith('/api/google/') ? pathname.slice('/api/google/'.length) : (query.url || '')
+async function handleGoogle (req, res, pathname, url, token) {
+	const targetPath = pathname.slice('/api/google/'.length)
+	if (!targetPath) {
+		const err = new Error('not found')
+		err.code = 404
+		throw err
+	}
+	const search = url?.search || ''
+	const targetUrl = `${targetPath}${search}`
 	let body = undefined
 	if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
 		body = await getBody(req)
-		if (typeof body === 'string' && body.trim().startsWith('{')) {
+		if (typeof body === 'string' && (body.trim().startsWith('{') || body.trim().startsWith('['))) {
 			try {
 				body = JSON.parse(body)
 			} catch {}
-		}
-		if (!targetUrl && body?.url) {
-			targetUrl = body.url
-			delete body.url
 		}
 	}
 	const result = await api.google.request({
 		url: targetUrl,
 		method: req.method,
-		query,
 		body
 	}, token)
 	if (result?.binary) {
@@ -71,9 +73,9 @@ const routes = {
 	}
 }
 
-async function handleRest (req, res, { pathname, query, token }) {
-	if (pathname === '/api/google' || pathname.startsWith('/api/google/')) {
-		await handleGoogle(req, res, pathname, query, token)
+async function handleRest (req, res, { pathname, url, query, token }) {
+	if (pathname.startsWith('/api/google/')) {
+		await handleGoogle(req, res, pathname, url, token)
 		return
 	}
 	if (pathname.startsWith('/api/sessions/')) {

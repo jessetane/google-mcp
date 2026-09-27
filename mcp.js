@@ -39,15 +39,11 @@ const tools = [
 			properties: {
 				url: {
 					type: 'string',
-					description: 'Full https://*.googleapis.com URL or relative path (e.g. "drive/v3/files", "calendar/v3/calendars/primary/events", or "https://sheets.googleapis.com/v4/spreadsheets/ID").'
+					description: 'Full https://*.googleapis.com URL or relative path with optional query parameters (e.g. "drive/v3/files?pageSize=10", "calendar/v3/calendars/primary/events", or "https://sheets.googleapis.com/v4/spreadsheets/ID").'
 				},
 				method: {
 					type: 'string',
 					description: 'HTTP method (GET, POST, PUT, PATCH, DELETE). Defaults to GET.'
-				},
-				query: {
-					type: 'object',
-					description: 'Query parameters as key-value pairs.'
 				},
 				body: {
 					type: ['object', 'string'],

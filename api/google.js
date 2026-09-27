@@ -5,7 +5,7 @@ export {
 	request
 }
 
-async function request ({ url, method = 'GET', query, body, headers } = {}, token) {
+async function request ({ url, method = 'GET', body, headers } = {}, token) {
 	if (!url) {
 		const err = new Error('URL is required')
 		err.status = 400
@@ -43,7 +43,6 @@ async function request ({ url, method = 'GET', query, body, headers } = {}, toke
 		token: googleToken,
 		url,
 		method: normalizedMethod,
-		query,
 		body,
 		headers
 	})
