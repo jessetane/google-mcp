@@ -52,7 +52,13 @@ function isAllowedRedirectUri (redirectUri) {
 	const envDomains = process.env.ALLOWED_REDIRECT_DOMAINS || 'localhost,127.0.0.1'
 	const allowedDomains = envDomains.split(',').map(d => d.trim().toLowerCase()).filter(Boolean)
 	const hostname = url.hostname.toLowerCase()
-	return allowedDomains.some(domain => hostname === domain || hostname.endsWith(`.${domain}`))
+	return allowedDomains.some(domain => {
+		if (domain.startsWith('*.')) {
+			const root = domain.slice(2)
+			return hostname === root || hostname.endsWith(`.${root}`)
+		}
+		return hostname === domain
+	})
 }
 
 async function handleProtectedResourceMetadata (req, res) {
