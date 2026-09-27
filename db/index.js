@@ -13,6 +13,7 @@ process.umask(prevUmask)
 
 sqlite.exec('PRAGMA journal_mode = WAL;')
 sqlite.exec('PRAGMA foreign_keys = ON;')
+sqlite.exec('PRAGMA busy_timeout = 5000;')
 
 for (const ext of ['', '-wal', '-shm']) {
 	const file = `${dbPath}${ext}`
