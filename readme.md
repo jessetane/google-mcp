@@ -5,8 +5,8 @@ MCP proxy for Google HTTP APIs.
 Gemini on the web is limited and lacks the power and flexibility of a standalone agent. Other frontier platforms may have "official" Google connectors but they are either paid-only, read-only or don't cover enough surface area to be truly useful.
 
 ## How
-* **Auth**: An internal OAuth server manages interactive Google service scope selection and automatic token refreshes locally in SQLite.  
-* **Proxy**: A single `google_api` MCP tool securely bridges HTTP calls to `*.googleapis.com`, giving agents near direct access to Google's REST APIs.  
+* **Auth**: An internal OAuth server manages interactive Google service scope selection and automatic token refreshing.  
+* **Proxy**: A single `google_api` MCP tool bridges HTTP calls to `*.googleapis.com`, giving agents near direct access to Google's REST APIs.  
 
 ## Setup
 A Google Cloud project with OAuth credentials is required:
@@ -44,7 +44,7 @@ When configured, any agent tool call violating the policy is blocked locally at 
 Go to **Plugins** → **New Plugin**:
 
 * Enter `<APP_URL>/mcp`, name, and description.  
-* OAuth is selected by default; complete the Google sign-in prompt when prompted.  
+* OAuth is selected by default, no customization is necessary.
 
 ### Claude Desktop
 Go to **Customize** → **Connectors**:
@@ -70,9 +70,9 @@ Sign in at `<APP_URL>/oauth/authorize` in your browser to get your session token
 
 ## Tools
 
-* **`auth`**: Inspect authentication status, list active sessions for current user, or revoke sessions.  
-  * `action`: `'status'` (default), `'list'`, or `'revoke'`.  
-  * `sessionId`: Optional session ID to revoke when action is `'revoke'`.  
+* **`auth`**: Inspect authentication status, list active sessions for current user, get session details, or revoke sessions.  
+  * `action`: `'whoami'` (or `'status'`, default), `'list'`, `'get'`, or `'revoke'`.  
+  * `sessionId`: Optional session ID when action is `'get'` or `'revoke'`.  
   * `allOthers`: Optional boolean to revoke all other active sessions when action is `'revoke'`.  
 * **`google_api`**: HTTP proxy to Google APIs (`*.googleapis.com`).  
   * `url`: Full URL (e.g. `https://www.googleapis.com/calendar/v3/calendars/primary/events?q=meeting`) or relative path with query parameters (e.g. `drive/v3/files?pageSize=10`).  
@@ -82,16 +82,21 @@ Sign in at `<APP_URL>/oauth/authorize` in your browser to get your session token
 
 ## Endpoints
 ```
-POST /mcp                                       # json-rpc mcp endpoint
-GET  /oauth/authorize                           # oauth scope selection & sign-in screen
-POST /oauth/authorize/consent                   # consent submission -> google oauth redirect
-GET  /oauth/callback                            # oauth callback handler
-POST /oauth/token                               # token exchange proxy
-POST /oauth/revoke                              # rfc 7009 token revocation
-GET  /.well-known/oauth-protected-resource      # rfc 9728 discovery
-GET  /.well-known/oauth-authorization-server    # rfc 8414 discovery
-GET  /api/health                                # health check
-ALL  /api/google/*                              # transparent google api proxy
+POST   /mcp                                       # json-rpc mcp endpoint
+GET    /oauth/authorize                           # oauth scope selection & sign-in screen
+POST   /oauth/authorize/consent                   # consent submission -> google oauth redirect
+GET    /oauth/callback                            # oauth callback handler
+POST   /oauth/token                               # token exchange proxy
+POST   /oauth/revoke                              # rfc 7009 token revocation
+GET    /.well-known/oauth-protected-resource      # rfc 9728 discovery
+GET    /.well-known/oauth-authorization-server    # rfc 8414 discovery
+GET    /api/health                                # health check
+GET    /api/whoami                                # inspect auth state, identity, scopes, policy & session
+GET    /api/sessions                              # list active sessions for authenticated user
+DELETE /api/sessions                              # revoke current session (or ?allOthers=true)
+GET    /api/sessions/:id                          # get specific session details
+DELETE /api/sessions/:id                          # revoke specific session
+ALL    /api/google/*                              # transparent google api proxy
 ```
 
 ## Install
