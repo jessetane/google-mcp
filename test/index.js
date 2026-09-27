@@ -21,6 +21,7 @@ const { server } = await import('../index.js')
 const db = await import('../db/index.js')
 const { readResponseBody, isGoogleApiUrl } = await import('../google.js')
 const { executeTool } = await import('../mcp.js')
+const { isAllowedRedirectUri } = await import('../oauth.js')
 const api = await import('../api/index.js')
 const { evaluatePolicy, matchPattern, parsePolicy, validatePolicy } = await import('../policy.js')
 
@@ -352,6 +353,15 @@ test('oauth pkce flow with S256', async () => {
 	assert.equal(successRes.status, 200)
 	const successData = await successRes.json()
 	assert.equal(successData.access_token, session.token)
+})
+
+test('isAllowedRedirectUri exact and wildcard matching', () => {
+	assert.equal(isAllowedRedirectUri('https://chatgpt.com/callback'), true)
+	assert.equal(isAllowedRedirectUri('https://foo.chatgpt.com/callback'), false)
+	assert.equal(isAllowedRedirectUri('https://localhost:3000/cb'), true)
+	assert.equal(isAllowedRedirectUri('https://evil.com/callback'), false)
+	assert.equal(isAllowedRedirectUri(''), false)
+	assert.equal(isAllowedRedirectUri(null), false)
 })
 
 test('oauth pkce authorize endpoint validation and state propagation', async () => {
@@ -733,18 +743,21 @@ test('parsePolicy helper parses valid JSON and returns null for invalid or empty
 	assert.equal(parsePolicy([{ invalid: 'rule' }]), null)
 })
 
-test('evaluatePolicy allows all when policy is null or empty', () => {
+test('evaluatePolicy allows all when policy is null or empty, denies when empty array', () => {
 	assert.equal(evaluatePolicy(null, { url: '/calendar/v3/calendars/primary/events', method: 'GET' }).allowed, true)
 	assert.equal(evaluatePolicy('', { url: '/calendar/v3/calendars/primary/events', method: 'GET' }).allowed, true)
-	assert.equal(evaluatePolicy('[]', { url: '/calendar/v3/calendars/primary/events', method: 'GET' }).allowed, true)
-	assert.equal(evaluatePolicy([], { url: '/calendar/v3/calendars/primary/events', method: 'GET' }).allowed, true)
+	assert.equal(evaluatePolicy('[]', { url: '/calendar/v3/calendars/primary/events', method: 'GET' }).allowed, false)
+	assert.equal(evaluatePolicy([], { url: '/calendar/v3/calendars/primary/events', method: 'GET' }).allowed, false)
 })
 
-test('evaluatePolicy denylist mode defaults to allow', () => {
+test('evaluatePolicy denylist mode with allow-all fallback', () => {
 	const policy = [
 		{
 			action: 'deny',
 			methods: ['DELETE']
+		},
+		{
+			action: 'allow'
 		}
 	]
 	assert.equal(evaluatePolicy(policy, { url: '/calendar/v3/calendars/primary/events', method: 'GET' }).allowed, true)
@@ -752,7 +765,7 @@ test('evaluatePolicy denylist mode defaults to allow', () => {
 	assert.equal(evaluatePolicy(policy, { url: '/calendar/v3/calendars/primary/events/123', method: 'DELETE' }).allowed, false)
 })
 
-test('evaluatePolicy sequential evaluation for calendar allowlist with catch-all deny', () => {
+test('evaluatePolicy sequential evaluation for calendar allowlist (default deny)', () => {
 	const policy = [
 		{
 			action: 'allow',
@@ -762,10 +775,6 @@ test('evaluatePolicy sequential evaluation for calendar allowlist with catch-all
 		{
 			action: 'allow',
 			path: '/calendar/v3/calendars/team-schedule@group.calendar.google.com/events/**'
-		},
-		{
-			action: 'deny',
-			description: 'Only the team-schedule calendar is accessible'
 		}
 	]
 
@@ -780,7 +789,6 @@ test('evaluatePolicy sequential evaluation for calendar allowlist with catch-all
 		method: 'DELETE'
 	})
 	assert.equal(deniedDeleteCal.allowed, false)
-	assert.equal(deniedDeleteCal.reason, 'Only the team-schedule calendar is accessible')
 
 	const allowedGetEvents = evaluatePolicy(policy, {
 		url: '/calendar/v3/calendars/team-schedule@group.calendar.google.com/events',
@@ -805,7 +813,6 @@ test('evaluatePolicy sequential evaluation for calendar allowlist with catch-all
 		method: 'GET'
 	})
 	assert.equal(deniedOtherCal.allowed, false)
-	assert.equal(deniedOtherCal.reason, 'Only the team-schedule calendar is accessible')
 
 	const allowedEncodedEvents = evaluatePolicy(policy, {
 		url: '/calendar/v3/calendars/team-schedule%40group.calendar.google.com/events',
@@ -822,14 +829,13 @@ test('evaluatePolicy sequential evaluation for calendar allowlist with catch-all
 
 test('evaluatePolicy matches relative paths and origin-scoped rules', () => {
 	const relPolicy = [
-		{ action: 'deny', path: 'drive/v3/files/**' }
+		{ action: 'allow', path: 'calendar/**' }
 	]
 	assert.equal(evaluatePolicy(relPolicy, { url: '/drive/v3/files/123', method: 'GET' }).allowed, false)
 	assert.equal(evaluatePolicy(relPolicy, { url: '/calendar/v3/calendars', method: 'GET' }).allowed, true)
 
 	const originPolicy = [
-		{ action: 'allow', origin: 'https://sheets.googleapis.com', path: '/v4/spreadsheets/**' },
-		{ action: 'deny' }
+		{ action: 'allow', origin: 'https://sheets.googleapis.com', path: '/v4/spreadsheets/**' }
 	]
 	assert.equal(evaluatePolicy(originPolicy, { url: 'https://sheets.googleapis.com/v4/spreadsheets/123', method: 'GET' }).allowed, true)
 	assert.equal(evaluatePolicy(originPolicy, { url: 'https://docs.googleapis.com/v4/spreadsheets/123', method: 'GET' }).allowed, false)
@@ -842,8 +848,7 @@ test('evaluatePolicy matches relative paths and origin-scoped rules', () => {
 
 test('evaluatePolicy matches URLs with query parameters in url string', () => {
 	const sheetPolicy = [
-		{ action: 'allow', origin: 'https://sheets.googleapis.com', path: '/v4/spreadsheets/123' },
-		{ action: 'deny' }
+		{ action: 'allow', origin: 'https://sheets.googleapis.com', path: '/v4/spreadsheets/123' }
 	]
 	assert.equal(evaluatePolicy(sheetPolicy, { url: 'https://sheets.googleapis.com/v4/spreadsheets/123?includeGridData=true' }).allowed, true)
 })
@@ -859,21 +864,19 @@ test('executeTool google_api enforces session policy and auth tools decode polic
 		{
 			action: 'allow',
 			path: '/calendar/v3/calendars/work/**'
-		},
-		{
-			action: 'deny',
-			description: 'Work calendar only'
 		}
 	]
 	const session = db.sessions.create({
 		userId: user.id,
 		accessToken: 'ya29.policy-token',
-		policy: JSON.stringify(policyObj)
+		policy: JSON.stringify(policyObj),
+		expiresAt: Date.now() + 3600000
 	})
 
 	const noTokenSession = db.sessions.create({
 		userId: user.id,
-		policy: JSON.stringify(policyObj)
+		policy: JSON.stringify(policyObj),
+		expiresAt: Date.now() + 3600000
 	})
 
 	const statusRes = await executeTool('auth', { action: 'status' }, noTokenSession.token)
@@ -901,7 +904,7 @@ test('executeTool google_api enforces session policy and auth tools decode polic
 	}, session.token)
 	assert.equal(deniedPathRes.isError, true)
 	assert.match(deniedPathRes.content[0].text, /Policy violation/)
-	assert.match(deniedPathRes.content[0].text, /Work calendar only/)
+	assert.match(deniedPathRes.content[0].text, /did not match any allow rule/)
 })
 
 test('oauth consent flow with policy', async () => {
@@ -1044,13 +1047,15 @@ test('rest api /api/whoami, /api/sessions, and /api/sessions/:id', async () => {
 		userId: user.id,
 		accessToken: 'ya29.rest-session-1',
 		refreshToken: '1//rest-refresh-1',
+		expiresAt: Date.now() + 3600000,
 		ip: '127.0.0.1',
 		ua: 'TestClient/1.0'
 	})
 	const session2 = db.sessions.create({
 		userId: user.id,
 		accessToken: 'ya29.rest-session-2',
-		refreshToken: '1//rest-refresh-2'
+		refreshToken: '1//rest-refresh-2',
+		expiresAt: Date.now() + 3600000
 	})
 	const whoamiRes = await fetch(`http://127.0.0.1:${addr.port}/api/whoami`, {
 		headers: { authorization: `Bearer ${session1.token}` }
@@ -1093,7 +1098,8 @@ test('mcp auth tool with whoami and get actions', async () => {
 	const session = db.sessions.create({
 		userId: user.id,
 		accessToken: 'ya29.mcp-session',
-		refreshToken: '1//mcp-refresh'
+		refreshToken: '1//mcp-refresh',
+		expiresAt: Date.now() + 3600000
 	})
 	const whoamiResult = await executeTool('auth', { action: 'whoami' }, session.token)
 	assert.equal(whoamiResult.isError, undefined)
@@ -1104,6 +1110,28 @@ test('mcp auth tool with whoami and get actions', async () => {
 	assert.equal(getResult.isError, undefined)
 	const parsedGet = JSON.parse(getResult.content[0].text)
 	assert.equal(parsedGet.session.id, session.id)
+})
+
+test('transparent rest proxy /api/google/*', async () => {
+	const addr = server.address()
+	const user = db.users.upsert({ email: 'rest-proxy@example.com' })
+	const session = db.sessions.create({
+		userId: user.id,
+		accessToken: 'ya29.rest-proxy-session',
+		expiresAt: Date.now() + 3600000
+	})
+	const notFoundRes = await fetch(`http://127.0.0.1:${addr.port}/api/google`, {
+		headers: { authorization: `Bearer ${session.token}` }
+	})
+	assert.equal(notFoundRes.status, 404)
+
+	const unauthRes = await fetch(`http://127.0.0.1:${addr.port}/api/google/drive/v3/files`)
+	assert.equal(unauthRes.status, 401)
+
+	const forbiddenDomainRes = await fetch(`http://127.0.0.1:${addr.port}/api/google/https://evil.com/leak`, {
+		headers: { authorization: `Bearer ${session.token}` }
+	})
+	assert.equal(forbiddenDomainRes.status, 403)
 })
 
 test('teardown server', (t, done) => {
