@@ -21,6 +21,7 @@ const { server } = await import('../index.js')
 const db = await import('../db/index.js')
 const { readResponseBody, isGoogleApiUrl } = await import('../google.js')
 const { executeTool } = await import('../mcp.js')
+const api = await import('../api/index.js')
 const { evaluatePolicy, matchPattern, parsePolicy, validatePolicy } = await import('../policy.js')
 
 test('setup server', (t, done) => {
@@ -1027,6 +1028,82 @@ test('oauth consent flow rejects invalid schema policy', async () => {
 	const data = await consentRes.json()
 	assert.equal(data.error, 'invalid_request')
 	assert.match(data.error_description, /unknown property "method"/)
+})
+
+test('rest api /api/whoami, /api/sessions, and /api/sessions/:id', async () => {
+	const addr = server.address()
+	const unauthRes = await fetch(`http://127.0.0.1:${addr.port}/api/whoami`)
+	assert.equal(unauthRes.status, 200)
+	const unauthData = await unauthRes.json()
+	assert.equal(unauthData.authenticated, false)
+	assert.match(unauthData.signInUrl, /\/oauth\/authorize/)
+	const unauthSessions = await fetch(`http://127.0.0.1:${addr.port}/api/sessions`)
+	assert.equal(unauthSessions.status, 401)
+	const user = db.users.upsert({ email: 'rest-test@example.com' })
+	const session1 = db.sessions.create({
+		userId: user.id,
+		accessToken: 'ya29.rest-session-1',
+		refreshToken: '1//rest-refresh-1',
+		ip: '127.0.0.1',
+		ua: 'TestClient/1.0'
+	})
+	const session2 = db.sessions.create({
+		userId: user.id,
+		accessToken: 'ya29.rest-session-2',
+		refreshToken: '1//rest-refresh-2'
+	})
+	const whoamiRes = await fetch(`http://127.0.0.1:${addr.port}/api/whoami`, {
+		headers: { authorization: `Bearer ${session1.token}` }
+	})
+	assert.equal(whoamiRes.status, 200)
+	const whoamiData = await whoamiRes.json()
+	assert.equal(whoamiData.authenticated, true)
+	assert.equal(whoamiData.email, 'rest-test@example.com')
+	assert.equal(whoamiData.currentSession.id, session1.id)
+	const listRes = await fetch(`http://127.0.0.1:${addr.port}/api/sessions`, {
+		headers: { authorization: `Bearer ${session1.token}` }
+	})
+	assert.equal(listRes.status, 200)
+	const listData = await listRes.json()
+	assert.equal(listData.sessions.length, 2)
+	const getRes = await fetch(`http://127.0.0.1:${addr.port}/api/sessions/${session2.id}`, {
+		headers: { authorization: `Bearer ${session1.token}` }
+	})
+	assert.equal(getRes.status, 200)
+	const getData = await getRes.json()
+	assert.equal(getData.session.id, session2.id)
+	const delSpecificRes = await fetch(`http://127.0.0.1:${addr.port}/api/sessions/${session2.id}`, {
+		method: 'DELETE',
+		headers: { authorization: `Bearer ${session1.token}` }
+	})
+	assert.equal(delSpecificRes.status, 200)
+	const delData = await delSpecificRes.json()
+	assert.equal(delData.revoked, true)
+	assert.equal(db.sessions.get(session2.id), null)
+	const delAllRes = await fetch(`http://127.0.0.1:${addr.port}/api/sessions`, {
+		method: 'DELETE',
+		headers: { authorization: `Bearer ${session1.token}` }
+	})
+	assert.equal(delAllRes.status, 200)
+	assert.equal(db.sessions.get(session1.id), null)
+})
+
+test('mcp auth tool with whoami and get actions', async () => {
+	const user = db.users.upsert({ email: 'mcp-whoami@example.com' })
+	const session = db.sessions.create({
+		userId: user.id,
+		accessToken: 'ya29.mcp-session',
+		refreshToken: '1//mcp-refresh'
+	})
+	const whoamiResult = await executeTool('auth', { action: 'whoami' }, session.token)
+	assert.equal(whoamiResult.isError, undefined)
+	const parsedWhoami = JSON.parse(whoamiResult.content[0].text)
+	assert.equal(parsedWhoami.authenticated, true)
+	assert.equal(parsedWhoami.email, 'mcp-whoami@example.com')
+	const getResult = await executeTool('auth', { action: 'get', sessionId: session.id }, session.token)
+	assert.equal(getResult.isError, undefined)
+	const parsedGet = JSON.parse(getResult.content[0].text)
+	assert.equal(parsedGet.session.id, session.id)
 })
 
 test('teardown server', (t, done) => {
