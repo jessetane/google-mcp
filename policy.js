@@ -130,9 +130,17 @@ function matchPattern (pattern, str) {
 
 function normalizeUrl (targetUrl) {
 	if (!targetUrl || typeof targetUrl !== 'string') return null
-	const fullUrl = targetUrl.startsWith('http://') || targetUrl.startsWith('https://')
-		? targetUrl
-		: `https://www.googleapis.com/${targetUrl.replace(/^\//, '')}`
+	let clean = targetUrl.trim()
+	if (clean.startsWith('https:/') && !clean.startsWith('https://')) {
+		clean = clean.replace(/^https:\/+/, 'https://')
+	}
+	let fullUrl = clean
+	if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+		const noLeadingSlash = clean.replace(/^\/+/, '')
+		fullUrl = /^[a-zA-Z0-9-]+\.googleapis\.com(\/|$)/i.test(noLeadingSlash)
+			? `https://${noLeadingSlash}`
+			: `https://www.googleapis.com/${noLeadingSlash}`
+	}
 	try {
 		return new URL(fullUrl)
 	} catch {
@@ -146,8 +154,11 @@ function evaluatePolicy (policy, req = {}) {
 		return { allowed: false, reason: validation.error }
 	}
 	const parsedPolicy = validation.policy
-	if (!parsedPolicy || !Array.isArray(parsedPolicy) || parsedPolicy.length === 0) {
+	if (!parsedPolicy || !Array.isArray(parsedPolicy)) {
 		return { allowed: true }
+	}
+	if (parsedPolicy.length === 0) {
+		return { allowed: false, reason: 'Empty policy denies all requests' }
 	}
 	const reqMethod = (req.method || 'GET').toUpperCase()
 	if (typeof req.url === 'string' && (/(?:%2e%2e|%2e\.|%2E%2E|%2E\.|\.%2e|\.%2E)(?:[/?#]|$)/i.test(req.url) || /\/\.\.(?:[/?#]|$)/.test(req.url))) {
@@ -187,5 +198,5 @@ function evaluatePolicy (policy, req = {}) {
 			return { allowed: true }
 		}
 	}
-	return { allowed: true }
+	return { allowed: false, reason: `Request did not match any allow rule for method "${reqMethod}" on "${req.url}"` }
 }

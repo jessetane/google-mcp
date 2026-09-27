@@ -22,7 +22,7 @@ A Google Cloud project with OAuth credentials is required:
 
 * **Interactive Scope Selection**: Visiting `<APP_URL>/oauth/authorize` displays a consent screen where users select which Google services to enable. All services are **read-only by default**; checking the **Write** column grants write privileges for that service.  
 * **Enterprise Scopes**: Scopes marked with `*` (Google Keep) are restricted by Google to enterprise Workspace accounts and will fail if requested from a personal (`@gmail.com`) account.  
-* **Granular Access Control Policies (JSON)**: In the authorize screen, users can specify an optional JSON policy attached to the minted token to restrict sub-resources or operations beyond Google's coarse-grained OAuth scopes. Rules are evaluated sequentially from top to bottom (the first matching rule wins; if no rules match, the request is allowed by default):
+* **Granular Access Control Policies (JSON)**: In the authorize screen, users can specify an optional JSON policy attached to the minted token to restrict sub-resources or operations beyond Google's coarse-grained OAuth scopes. Rules are evaluated sequentially from top to bottom (the first matching rule wins; if no rules match, the request is denied by default):
 
 ```json
 [
@@ -34,9 +34,6 @@ A Google Cloud project with OAuth credentials is required:
 	{
 		"action": "allow",
 		"path": "/calendar/v3/calendars/team-schedule@group.calendar.google.com/events/**"
-	},
-	{
-		"action": "deny"
 	}
 ]
 ```
@@ -78,9 +75,8 @@ Sign in at `<APP_URL>/oauth/authorize` in your browser to get your session token
   * `sessionId`: Optional session ID to revoke when action is `'revoke'`.  
   * `allOthers`: Optional boolean to revoke all other active sessions when action is `'revoke'`.  
 * **`google_api`**: HTTP proxy to Google APIs (`*.googleapis.com`).  
-  * `url`: Full URL (e.g. `https://www.googleapis.com/calendar/v3/calendars/primary/events`) or path (e.g. `drive/v3/files`).  
+  * `url`: Full URL (e.g. `https://www.googleapis.com/calendar/v3/calendars/primary/events?q=meeting`) or relative path with query parameters (e.g. `drive/v3/files?pageSize=10`).  
   * `method`: `GET`, `POST`, `PUT`, `PATCH`, `DELETE` (defaults to `GET`).  
-  * `query`: Object with query parameters (e.g. `{ "q": "name contains 'Invoice'" }`).  
   * `body`: Object or string body for POST/PUT/PATCH requests.  
   * `headers`: Extra request headers (e.g. `{ "accept": "application/pdf" }`).  
 
@@ -95,6 +91,7 @@ POST /oauth/revoke                              # rfc 7009 token revocation
 GET  /.well-known/oauth-protected-resource      # rfc 9728 discovery
 GET  /.well-known/oauth-authorization-server    # rfc 8414 discovery
 GET  /api/health                                # health check
+ALL  /api/google/*                              # transparent google api proxy
 ```
 
 ## Install
