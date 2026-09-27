@@ -1,6 +1,4 @@
-import * as db from './db/index.js'
-import { proxyGoogleApi, getFreshGoogleToken, getUserInfo, revokeGoogleToken } from './google.js'
-import { evaluatePolicy, parsePolicy } from './policy.js'
+import * as api from './api/index.js'
 
 export {
 	tools,
@@ -16,12 +14,12 @@ const tools = [
 			properties: {
 				action: {
 					type: 'string',
-					enum: ['status', 'list', 'revoke'],
-					description: 'Action to perform: "status" (check current authentication state and session info), "list" (list all active sessions for current user), or "revoke" (revoke current session, a specific session by sessionId, or all other sessions). Defaults to "status".'
+					enum: ['whoami', 'status', 'list', 'get', 'revoke'],
+					description: 'Action to perform: "whoami" (or "status", check current authentication state and session info), "list" (list all active sessions for current user), "get" (get details of a session by sessionId), or "revoke" (revoke current session, a specific session by sessionId, or all other sessions). Defaults to "whoami".'
 				},
 				sessionId: {
 					type: 'string',
-					description: 'Specific session ID to revoke when action is "revoke". Omit to revoke the current session.'
+					description: 'Specific session ID when action is "get" or "revoke".'
 				},
 				allOthers: {
 					type: 'boolean',
@@ -84,173 +82,53 @@ async function executeTool (name, args = {}, token) {
 		}
 	}
 	if (name === 'auth') {
-		const action = args.action || 'status'
-		const appUrl = process.env.APP_URL || 'http://localhost:8080'
-		const session = db.sessions.getByToken(token)
-		if (action === 'status') {
-			if (session) {
-				let googleToken = null
-				try {
-					const authInfo = await getFreshGoogleToken(token)
-					googleToken = authInfo?.token || null
-				} catch (err) {
-					console.warn('[mcp] Failed to refresh Google token during status check:', err.message)
-				}
-				if (googleToken) {
-					try {
-						const user = await getUserInfo(googleToken)
-						return {
-							content: [{
-								type: 'text',
-								text: JSON.stringify({
-									authenticated: true,
-									email: user.email,
-									scope: session.scope ?? null,
-									policy: parsePolicy(session.policy),
-									currentSession: {
-										id: session.id,
-										ip: session.ip,
-										ua: session.ua,
-										created: session.created,
-										updated: session.updated
-									}
-								}, null, '\t')
-							}]
-						}
-					} catch (err) {
-						console.warn('[mcp] Failed to verify Google token during status check:', err.message)
-						return {
-							isError: true,
-							content: [{
-								type: 'text',
-								text: `Failed to verify Google token: ${err.message}`
-							}]
-						}
-					}
-				}
+		const action = args.action || 'whoami'
+		try {
+			if (action === 'whoami' || action === 'status') {
+				const result = await api.auth.whoami(token)
 				return {
 					content: [{
 						type: 'text',
-						text: JSON.stringify({
-							authenticated: true,
-							email: session.email,
-							scope: session.scope ?? null,
-							policy: parsePolicy(session.policy),
-							currentSession: {
-								id: session.id,
-								ip: session.ip,
-								ua: session.ua,
-								created: session.created,
-								updated: session.updated
-							}
-						}, null, '\t')
+						text: JSON.stringify(result, null, '\t')
 					}]
 				}
 			}
+			if (action === 'list') {
+				const result = await api.auth.list(token)
+				return {
+					content: [{
+						type: 'text',
+						text: JSON.stringify(result, null, '\t')
+					}]
+				}
+			}
+			if (action === 'get') {
+				const result = await api.auth.get(token, args.sessionId)
+				return {
+					content: [{
+						type: 'text',
+						text: JSON.stringify(result, null, '\t')
+					}]
+				}
+			}
+			if (action === 'revoke') {
+				const result = await api.auth.revoke(token, {
+					sessionId: args.sessionId,
+					allOthers: args.allOthers
+				})
+				return {
+					content: [{
+						type: 'text',
+						text: JSON.stringify(result, null, '\t')
+					}]
+				}
+			}
+		} catch (err) {
 			return {
+				isError: true,
 				content: [{
 					type: 'text',
-					text: JSON.stringify({
-						authenticated: false,
-						signInUrl: `${appUrl.replace(/\/$/, '')}/oauth/authorize`,
-						message: 'Missing or expired Google Bearer token.'
-					}, null, '\t')
-				}]
-			}
-		}
-		if (action === 'list') {
-			if (!session) {
-				return {
-					isError: true,
-					content: [{
-						type: 'text',
-						text: `Authentication required: ${appUrl.replace(/\/$/, '')}/oauth/authorize`
-					}]
-				}
-			}
-			const rawSessions = db.sessions.listByUserId(session.userId)
-			const sessions = rawSessions.map(s => ({ ...s, policy: parsePolicy(s.policy), isCurrent: s.id === session.id }))
-			return {
-				content: [{
-					type: 'text',
-					text: JSON.stringify({ sessions }, null, '\t')
-				}]
-			}
-		}
-		if (action === 'revoke') {
-			if (!session) {
-				return {
-					content: [{
-						type: 'text',
-						text: JSON.stringify({
-							revoked: false,
-							message: 'No active session found for the provided token.'
-						}, null, '\t')
-					}]
-				}
-			}
-			if (args.allOthers) {
-				const userSessions = db.sessions.listByUserId(session.userId)
-				const others = userSessions.filter(s => s.id !== session.id)
-				for (const s of others) {
-					const fullSession = db.sessions.get(s.id)
-					if (fullSession) {
-						const upstreamToken = fullSession.refreshToken || fullSession.accessToken
-						if (upstreamToken) await revokeGoogleToken(upstreamToken)
-						db.sessions.remove(fullSession.id)
-					}
-				}
-				return {
-					content: [{
-						type: 'text',
-						text: JSON.stringify({
-							revoked: true,
-							count: others.length,
-							message: `Revoked ${others.length} other session(s).`
-						}, null, '\t')
-					}]
-				}
-			}
-			if (args.sessionId) {
-				const targetSession = db.sessions.get(args.sessionId)
-				if (!targetSession || targetSession.userId !== session.userId) {
-					return {
-						content: [{
-							type: 'text',
-							text: JSON.stringify({
-								revoked: false,
-								message: `Session not found: ${args.sessionId}`
-							}, null, '\t')
-						}]
-					}
-				}
-				const upstreamToken = targetSession.refreshToken || targetSession.accessToken
-				if (upstreamToken) await revokeGoogleToken(upstreamToken)
-				db.sessions.remove(targetSession.id)
-				return {
-					content: [{
-						type: 'text',
-						text: JSON.stringify({
-							revoked: true,
-							sessionId: targetSession.id,
-							isCurrent: targetSession.id === session.id,
-							message: 'Session revoked.'
-						}, null, '\t')
-					}]
-				}
-			}
-			const upstreamToken = session.refreshToken || session.accessToken
-			if (upstreamToken) await revokeGoogleToken(upstreamToken)
-			db.sessions.remove(session.id)
-			return {
-				content: [{
-					type: 'text',
-					text: JSON.stringify({
-						revoked: true,
-						sessionId: session.id,
-						isCurrent: true,
-						message: 'Current session revoked.'
-					}, null, '\t')
+					text: err.message
 				}]
 			}
 		}
@@ -263,60 +141,16 @@ async function executeTool (name, args = {}, token) {
 			}]
 		}
 	}
-	let authInfo = null
 	try {
-		authInfo = await getFreshGoogleToken(token)
-	} catch (err) {
-		console.warn(`[mcp] Failed to refresh Google access token: ${err.message}`)
-		return {
-			isError: true,
-			content: [{
-				type: 'text',
-				text: `Failed to refresh Google access token: ${err.message}`
-			}]
-		}
-	}
-	const googleToken = authInfo?.token || null
-	if (!googleToken) {
-		const appUrl = process.env.APP_URL || 'http://localhost:8080'
-		console.warn('[mcp] google_api rejected: Authentication required')
-		return {
-			isError: true,
-			content: [{
-				type: 'text',
-				text: `Authentication required: ${appUrl.replace(/\/$/, '')}/oauth/authorize`
-			}]
-		}
-	}
-	const method = (args.method || 'GET').toUpperCase()
-	const session = authInfo.session
-	if (session?.policy) {
-		const check = evaluatePolicy(session.policy, {
+		const result = await api.google.request({
 			url: args.url,
-			method
-		})
-		if (!check.allowed) {
-			console.warn(`[mcp] google_api policy violation: ${check.reason || 'Operation not permitted by session policy'}`)
-			return {
-				isError: true,
-				content: [{
-					type: 'text',
-					text: `Policy violation: ${check.reason || 'Operation not permitted by session policy'}`
-				}]
-			}
-		}
-	}
-	try {
-		const result = await proxyGoogleApi({
-			token: googleToken,
-			url: args.url,
-			method,
+			method: args.method,
 			query: args.query,
 			body: args.body,
 			headers: args.headers
-		})
+		}, token)
 		if (result?.binary) {
-			if (result.mimeType.startsWith('image/')) {
+			if (result.mimeType?.startsWith('image/')) {
 				return {
 					content: [{
 						type: 'image',
@@ -344,12 +178,42 @@ async function executeTool (name, args = {}, token) {
 			}]
 		}
 	} catch (err) {
+		if (err.message?.startsWith('Policy violation:')) {
+			console.warn(`[mcp] google_api policy violation: ${err.message.replace(/^Policy violation:\s*/, '')}`)
+			return {
+				isError: true,
+				content: [{
+					type: 'text',
+					text: err.message
+				}]
+			}
+		}
+		if (err.message?.startsWith('Authentication required:')) {
+			console.warn('[mcp] google_api rejected: Authentication required')
+			return {
+				isError: true,
+				content: [{
+					type: 'text',
+					text: err.message
+				}]
+			}
+		}
+		if (err.message?.startsWith('Failed to refresh Google access token:')) {
+			console.warn(`[mcp] ${err.message}`)
+			return {
+				isError: true,
+				content: [{
+					type: 'text',
+					text: err.message
+				}]
+			}
+		}
 		console.warn(`[mcp] google_api error (${err.status || 500}): ${err.message}`)
 		return {
 			isError: true,
 			content: [{
 				type: 'text',
-				text: `Google API Error (${err.status || 500}): ${err.message}`
+				text: err.status ? `Google API Error (${err.status}): ${err.message}` : err.message
 			}]
 		}
 	}
