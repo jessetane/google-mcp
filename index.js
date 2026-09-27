@@ -15,6 +15,7 @@ const dirname = path.dirname(fileURLToPath(import.meta.url))
 const host = process.env.HOST || '::1'
 const port = process.env.PORT || '8080'
 const appUrl = process.env.APP_URL || 'http://localhost:8080'
+const corsOrigin = process.env.CORS_ORIGIN || '*'
 
 function resolveToken (req) {
 	const auth = req.headers.authorization || ''
@@ -29,7 +30,7 @@ const server = http.createServer(async (req, res) => {
 			console.log(`[${res.statusCode}] ${req.method} ${req.url} (${duration}ms)`)
 		}
 	})
-	res.setHeader('access-control-allow-origin', '*')
+	res.setHeader('access-control-allow-origin', corsOrigin)
 	res.setHeader('access-control-allow-methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
 	res.setHeader('access-control-allow-headers', 'authorization, content-type, mcp-session-id, x-api-key, accept')
 	if (req.method === 'OPTIONS') {
@@ -54,7 +55,7 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 		if (pathname.startsWith('/api/')) {
-			await handleRest(req, res, { pathname, query, token })
+			await handleRest(req, res, { pathname, url, query, token })
 			return
 		}
 		if (pathname === '/mcp') {
@@ -75,9 +76,11 @@ const server = http.createServer(async (req, res) => {
 			console.error(err)
 			message = 'Internal Server Error'
 		}
-		res.statusCode = statusCode
-		res.setHeader('content-type', 'application/json; charset=utf-8')
-		res.end(JSON.stringify({ error: message }))
+		if (!res.headersSent && !res.writableEnded) {
+			res.statusCode = statusCode
+			res.setHeader('content-type', 'application/json; charset=utf-8')
+			res.end(JSON.stringify({ error: message }))
+		}
 	}
 })
 
