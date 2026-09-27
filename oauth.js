@@ -8,6 +8,7 @@ import { getBody } from './util.js'
 import { validatePolicy } from './policy.js'
 
 export {
+	handleOauth,
 	handleAuthorize,
 	handleAuthorizeConsent,
 	handleCallback,
@@ -435,4 +436,24 @@ async function handleRevoke (req, res) {
 	res.statusCode = 200
 	res.setHeader('content-type', 'application/json; charset=utf-8')
 	res.end(JSON.stringify({ status: 'ok' }))
+}
+
+const routes = {
+	'/.well-known/oauth-protected-resource': (req, res) => handleProtectedResourceMetadata(req, res),
+	'/.well-known/oauth-authorization-server': (req, res) => handleAuthServerMetadata(req, res),
+	'/oauth/authorize': (req, res, { query }) => handleAuthorize(req, res, query),
+	'/oauth/authorize/consent': (req, res) => handleAuthorizeConsent(req, res),
+	'/oauth/callback': (req, res, { query }) => handleCallback(req, res, query),
+	'/oauth/token': (req, res) => handleToken(req, res),
+	'/oauth/revoke': (req, res) => handleRevoke(req, res)
+}
+
+async function handleOauth (req, res, { pathname, query }) {
+	const handler = routes[pathname]
+	if (!handler) {
+		const err = new Error('not found')
+		err.code = 404
+		throw err
+	}
+	await handler(req, res, { query })
 }

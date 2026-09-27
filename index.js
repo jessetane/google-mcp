@@ -5,7 +5,7 @@ import http from 'node:http'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import * as oauth from './oauth.js'
+import { handleOauth } from './oauth.js'
 import { handleMcp } from './mcp.js'
 import { handleRest } from './rest.js'
 
@@ -61,32 +61,8 @@ const server = http.createServer(async (req, res) => {
 			await handleMcp(req, res, token)
 			return
 		}
-		if (pathname === '/.well-known/oauth-protected-resource') {
-			await oauth.handleProtectedResourceMetadata(req, res)
-			return
-		}
-		if (pathname === '/.well-known/oauth-authorization-server') {
-			await oauth.handleAuthServerMetadata(req, res)
-			return
-		}
-		if (pathname === '/oauth/authorize') {
-			await oauth.handleAuthorize(req, res, query)
-			return
-		}
-		if (pathname === '/oauth/authorize/consent') {
-			await oauth.handleAuthorizeConsent(req, res)
-			return
-		}
-		if (pathname === '/oauth/callback') {
-			await oauth.handleCallback(req, res, query)
-			return
-		}
-		if (pathname === '/oauth/token') {
-			await oauth.handleToken(req, res)
-			return
-		}
-		if (pathname === '/oauth/revoke') {
-			await oauth.handleRevoke(req, res)
+		if (pathname.startsWith('/oauth/') || pathname.startsWith('/.well-known/oauth-')) {
+			await handleOauth(req, res, { pathname, query })
 			return
 		}
 		const err = new Error('not found')
