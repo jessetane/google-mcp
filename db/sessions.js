@@ -23,6 +23,7 @@ function init () {
 			expires_at INTEGER,
 			scope TEXT,
 			policy TEXT,
+			admin INTEGER DEFAULT 0,
 			ip TEXT,
 			ua TEXT,
 			created TEXT NOT NULL,
@@ -35,6 +36,7 @@ function init () {
 	const columns = sqlite.prepare('PRAGMA table_info(sessions)').all().map(c => c.name)
 	if (!columns.includes('scope')) sqlite.exec('ALTER TABLE sessions ADD COLUMN scope TEXT;')
 	if (!columns.includes('policy')) sqlite.exec('ALTER TABLE sessions ADD COLUMN policy TEXT;')
+	if (!columns.includes('admin')) sqlite.exec('ALTER TABLE sessions ADD COLUMN admin INTEGER DEFAULT 0;')
 }
 
 function formatSession (row) {
@@ -48,6 +50,7 @@ function formatSession (row) {
 		expiresAt: row.expires_at,
 		scope: row.scope,
 		policy: row.policy,
+		admin: Boolean(row.admin),
 		ip: row.ip,
 		ua: row.ua,
 		created: row.created,
@@ -67,15 +70,16 @@ function create (opts = {}) {
 		expiresAt = null,
 		scope = null,
 		policy = null,
+		admin = 0,
 		ip = null,
 		ua = null
 	} = opts
 	pruneExpired()
 	const now = new Date().toISOString()
 	sqlite.prepare(`
-		INSERT INTO sessions (id, user_id, token, refresh_token, access_token, expires_at, scope, policy, ip, ua, created, updated)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`).run(id, userId, token, refreshToken, accessToken, expiresAt, scope, policy, ip, ua, now, now)
+		INSERT INTO sessions (id, user_id, token, refresh_token, access_token, expires_at, scope, policy, admin, ip, ua, created, updated)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`).run(id, userId, token, refreshToken, accessToken, expiresAt, scope, policy, admin ? 1 : 0, ip, ua, now, now)
 	return get(id)
 }
 
@@ -105,7 +109,7 @@ function listByUserId (userId) {
 	if (!userId) return []
 	pruneExpired()
 	const rows = sqlite.prepare(`
-		SELECT id, user_id, scope, policy, ip, ua, created, updated
+		SELECT id, user_id, scope, policy, admin, ip, ua, created, updated
 		FROM sessions
 		WHERE user_id = ?
 		ORDER BY created DESC
@@ -115,6 +119,7 @@ function listByUserId (userId) {
 		userId: r.user_id,
 		scope: r.scope,
 		policy: r.policy,
+		admin: Boolean(r.admin),
 		ip: r.ip,
 		ua: r.ua,
 		created: r.created,

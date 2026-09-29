@@ -17,6 +17,7 @@ function init () {
 			code_challenge TEXT,
 			code_challenge_method TEXT,
 			policy TEXT,
+			admin INTEGER DEFAULT 0,
 			ip TEXT,
 			created_at INTEGER NOT NULL
 		);
@@ -24,6 +25,7 @@ function init () {
 	`)
 	const columns = sqlite.prepare('PRAGMA table_info(oauth_states)').all().map(c => c.name)
 	if (!columns.includes('policy')) sqlite.exec('ALTER TABLE oauth_states ADD COLUMN policy TEXT;')
+	if (!columns.includes('admin')) sqlite.exec('ALTER TABLE oauth_states ADD COLUMN admin INTEGER DEFAULT 0;')
 }
 
 function create (opts = {}) {
@@ -33,15 +35,16 @@ function create (opts = {}) {
 		codeChallenge = null,
 		codeChallengeMethod = null,
 		policy = null,
+		admin = 0,
 		ip = null
 	} = opts
 	pruneExpired()
 	const state = randomBytes(24).toString('base64url')
 	const now = Date.now()
 	sqlite.prepare(`
-		INSERT INTO oauth_states (state, client_redirect_uri, client_state, code_challenge, code_challenge_method, policy, ip, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`).run(state, clientRedirectUri, clientState, codeChallenge, codeChallengeMethod, policy, ip, now)
+		INSERT INTO oauth_states (state, client_redirect_uri, client_state, code_challenge, code_challenge_method, policy, admin, ip, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`).run(state, clientRedirectUri, clientState, codeChallenge, codeChallengeMethod, policy, admin ? 1 : 0, ip, now)
 	return state
 }
 
@@ -58,6 +61,7 @@ function consume (state) {
 		codeChallenge: row.code_challenge,
 		codeChallengeMethod: row.code_challenge_method,
 		policy: row.policy,
+		admin: Boolean(row.admin),
 		ip: row.ip,
 		createdAt: row.created_at
 	}

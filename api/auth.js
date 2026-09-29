@@ -32,8 +32,10 @@ async function whoami (token) {
 		email: session.email,
 		scope: session.scope ?? null,
 		policy: parsePolicy(session.policy),
+		admin: Boolean(session.admin),
 		currentSession: {
 			id: session.id,
+			admin: Boolean(session.admin),
 			ip: session.ip,
 			ua: session.ua,
 			created: session.created,
@@ -50,6 +52,11 @@ async function list (token) {
 		error.status = 401
 		throw error
 	}
+	if (!session.admin) {
+		const error = new Error('Access denied: session administration requires admin privileges')
+		error.status = 403
+		throw error
+	}
 	const rawSessions = db.sessions.listByUserId(session.userId)
 	const sessions = rawSessions.map(s => ({ ...s, policy: parsePolicy(s.policy), isCurrent: s.id === session.id }))
 	return { sessions }
@@ -63,16 +70,22 @@ async function get (token, sessionId) {
 		error.status = 401
 		throw error
 	}
+	if (!session.admin && sessionId !== session.id) {
+		const error = new Error('Access denied: session administration requires admin privileges')
+		error.status = 403
+		throw error
+	}
 	const targetSession = db.sessions.get(sessionId)
 	if (!targetSession || targetSession.userId !== session.userId) {
 		const error = new Error(`Session not found: ${sessionId}`)
 		error.status = 404
 		throw error
 	}
+	const { token: _t, refreshToken: _r, accessToken: _a, ...safeSession } = targetSession
 	return {
 		session: {
-			...targetSession,
-			policy: parsePolicy(targetSession.policy),
+			...safeSession,
+			policy: parsePolicy(safeSession.policy),
 			isCurrent: targetSession.id === session.id
 		}
 	}
@@ -87,6 +100,11 @@ async function revoke (token, { sessionId, allOthers } = {}) {
 		}
 	}
 	if (allOthers) {
+		if (!session.admin) {
+			const error = new Error('Access denied: revoking other sessions requires admin privileges')
+			error.status = 403
+			throw error
+		}
 		const userSessions = db.sessions.listByUserId(session.userId)
 		const others = userSessions.filter(s => s.id !== session.id)
 		for (const s of others) {
@@ -103,7 +121,12 @@ async function revoke (token, { sessionId, allOthers } = {}) {
 			message: `Revoked ${others.length} other session(s).`
 		}
 	}
-	if (sessionId) {
+	if (sessionId && sessionId !== session.id) {
+		if (!session.admin) {
+			const error = new Error('Access denied: revoking other sessions requires admin privileges')
+			error.status = 403
+			throw error
+		}
 		const targetSession = db.sessions.get(sessionId)
 		if (!targetSession || targetSession.userId !== session.userId) {
 			return {
@@ -117,7 +140,7 @@ async function revoke (token, { sessionId, allOthers } = {}) {
 		return {
 			revoked: true,
 			sessionId: targetSession.id,
-			isCurrent: targetSession.id === session.id,
+			isCurrent: false,
 			message: 'Session revoked.'
 		}
 	}

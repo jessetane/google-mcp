@@ -1,5 +1,6 @@
 import RpcEngine from 'rpc-engine'
 import * as api from './api/index.js'
+import * as db from './db/index.js'
 import { getBody } from './util.js'
 
 export {
@@ -11,7 +12,7 @@ export {
 const tools = [
 	{
 		name: 'auth',
-		description: 'Inspect authentication status, list active sessions for the current user, or revoke sessions.',
+		description: 'Inspect authentication status, list active sessions for current user, get session details, or revoke sessions (available to admin sessions).',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -108,6 +109,12 @@ function formatContent (result) {
 function formatError (err) {
 	if (err.message?.startsWith('Policy violation:')) {
 		console.warn(`[mcp] google_api policy violation: ${err.message.replace(/^Policy violation:\s*/, '')}`)
+	} else if (err.message?.startsWith('Access denied:')) {
+		console.warn(`[mcp] auth access denied: ${err.message}`)
+		return {
+			isError: true,
+			content: [{ type: 'text', text: err.message }]
+		}
 	} else if (err.message?.startsWith('Authentication required:')) {
 		console.warn('[mcp] google_api rejected: Authentication required')
 	} else if (err.message?.startsWith('Failed to refresh Google access token:')) {
@@ -167,9 +174,13 @@ const rpcMethods = {
 		}
 		return {}
 	},
-	'tools/list': () => {
+	'tools/list': (params, token) => {
 		if (process.env.NODE_ENV !== 'test') {
 			console.log('[mcp] tools/list')
+		}
+		const session = token ? db.sessions.getByToken(token) : null
+		if (session && !session.admin) {
+			return { tools: tools.filter(t => t.name !== 'auth') }
 		}
 		return { tools }
 	},
@@ -220,6 +231,7 @@ async function handleMcp (req, res, token) {
 	})
 	rpc.methods = {
 		...rpcMethods,
+		'tools/list': params => rpcMethods['tools/list'](params, token),
 		'tools/call': params => rpcMethods['tools/call'](params, token)
 	}
 	const request = await getBody(req)

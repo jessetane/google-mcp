@@ -136,6 +136,7 @@ function redirectToGoogle (res, req, opts = {}) {
 		codeChallenge = null,
 		codeChallengeMethod = null,
 		policy = null,
+		admin = 0,
 		scopes = baseScopes.join(' ')
 	} = opts
 	const callbackUrl = `${appUrl.replace(/\/$/, '')}/oauth/callback`
@@ -146,6 +147,7 @@ function redirectToGoogle (res, req, opts = {}) {
 		codeChallenge,
 		codeChallengeMethod,
 		policy,
+		admin,
 		ip
 	})
 	const u = new URL('https://accounts.google.com/o/oauth2/v2/auth')
@@ -200,6 +202,7 @@ async function handleAuthorizeConsent (req, res) {
 	const serviceIdsRead = []
 	const serviceIdsWrite = []
 	let policy = null
+	let admin = 0
 
 	for (const [key, value] of params.entries()) {
 		if (key === 'services') {
@@ -224,6 +227,8 @@ async function handleAuthorizeConsent (req, res) {
 				}
 				policy = trimmed
 			}
+		} else if (key === 'admin') {
+			admin = value === 'true' || value === '1' || value === 'on' ? 1 : 0
 		} else {
 			query[key] = value
 		}
@@ -250,6 +255,7 @@ async function handleAuthorizeConsent (req, res) {
 		codeChallenge,
 		codeChallengeMethod,
 		policy,
+		admin,
 		scopes
 	})
 }
@@ -312,6 +318,7 @@ async function handleCallback (req, res, query) {
 		expiresAt: Date.now() + ((tokenData.expires_in || 3600) * 1000),
 		scope: tokenData.scope || null,
 		policy: oauthState.policy || null,
+		admin: oauthState.admin ? 1 : 0,
 		ip,
 		ua
 	})
