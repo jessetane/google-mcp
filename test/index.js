@@ -671,6 +671,7 @@ test('mcp auth status, list, and revoke', async () => {
 		userId: user.id,
 		accessToken: 'ya29.session-1-token',
 		refreshToken: '1//session-1-refresh',
+		admin: true,
 		ip: '192.168.1.10',
 		ua: 'ClaudeDesktop/1.0',
 		scope: 'https://www.googleapis.com/auth/drive.readonly'
@@ -870,6 +871,7 @@ test('executeTool google_api enforces session policy and auth tools decode polic
 		userId: user.id,
 		accessToken: 'ya29.policy-token',
 		policy: JSON.stringify(policyObj),
+		admin: true,
 		expiresAt: Date.now() + 3600000
 	})
 
@@ -1047,6 +1049,7 @@ test('rest api /api/whoami, /api/sessions, and /api/sessions/:id', async () => {
 		userId: user.id,
 		accessToken: 'ya29.rest-session-1',
 		refreshToken: '1//rest-refresh-1',
+		admin: true,
 		expiresAt: Date.now() + 3600000,
 		ip: '127.0.0.1',
 		ua: 'TestClient/1.0'
@@ -1077,6 +1080,9 @@ test('rest api /api/whoami, /api/sessions, and /api/sessions/:id', async () => {
 	assert.equal(getRes.status, 200)
 	const getData = await getRes.json()
 	assert.equal(getData.session.id, session2.id)
+	assert.equal(getData.session.token, undefined)
+	assert.equal(getData.session.accessToken, undefined)
+	assert.equal(getData.session.refreshToken, undefined)
 	const delSpecificRes = await fetch(`http://127.0.0.1:${addr.port}/api/sessions/${session2.id}`, {
 		method: 'DELETE',
 		headers: { authorization: `Bearer ${session1.token}` }
@@ -1110,6 +1116,9 @@ test('mcp auth tool with whoami and get actions', async () => {
 	assert.equal(getResult.isError, undefined)
 	const parsedGet = JSON.parse(getResult.content[0].text)
 	assert.equal(parsedGet.session.id, session.id)
+	assert.equal(parsedGet.session.token, undefined)
+	assert.equal(parsedGet.session.accessToken, undefined)
+	assert.equal(parsedGet.session.refreshToken, undefined)
 })
 
 test('transparent rest proxy /api/google/*', async () => {
@@ -1132,6 +1141,152 @@ test('transparent rest proxy /api/google/*', async () => {
 		headers: { authorization: `Bearer ${session.token}` }
 	})
 	assert.equal(forbiddenDomainRes.status, 403)
+})
+
+test('mcp tools/list filtering based on session admin status', async () => {
+	const addr = server.address()
+	const user = db.users.upsert({ email: 'mcp-tools-filter@example.com' })
+	const adminSession = db.sessions.create({
+		userId: user.id,
+		accessToken: 'ya29.admin-token',
+		admin: true,
+		expiresAt: Date.now() + 3600000
+	})
+	const workerSession = db.sessions.create({
+		userId: user.id,
+		accessToken: 'ya29.worker-token',
+		admin: false,
+		expiresAt: Date.now() + 3600000
+	})
+
+	const adminRes = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
+		method: 'POST',
+		headers: {
+			'content-type': 'application/json',
+			authorization: `Bearer ${adminSession.token}`
+		},
+		body: JSON.stringify({
+			jsonrpc: '2.0',
+			id: 100,
+			method: 'tools/list',
+			params: {}
+		})
+	})
+	assert.equal(adminRes.status, 200)
+	const adminData = await adminRes.json()
+	assert.deepEqual(adminData.result.tools.map(t => t.name), ['auth', 'google_api'])
+
+	const workerRes = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
+		method: 'POST',
+		headers: {
+			'content-type': 'application/json',
+			authorization: `Bearer ${workerSession.token}`
+		},
+		body: JSON.stringify({
+			jsonrpc: '2.0',
+			id: 101,
+			method: 'tools/list',
+			params: {}
+		})
+	})
+	assert.equal(workerRes.status, 200)
+	const workerData = await workerRes.json()
+	assert.deepEqual(workerData.result.tools.map(t => t.name), ['google_api'])
+})
+
+test('non-admin session auth restrictions and self-management', async () => {
+	const user = db.users.upsert({ email: 'non-admin-auth@example.com' })
+	const session1 = db.sessions.create({
+		userId: user.id,
+		accessToken: 'ya29.non-admin-1',
+		admin: false,
+		expiresAt: Date.now() + 3600000
+	})
+	const session2 = db.sessions.create({
+		userId: user.id,
+		accessToken: 'ya29.non-admin-2',
+		admin: false,
+		expiresAt: Date.now() + 3600000
+	})
+
+	const whoamiResult = await executeTool('auth', { action: 'whoami' }, session1.token)
+	assert.equal(whoamiResult.isError, undefined)
+	const whoamiParsed = JSON.parse(whoamiResult.content[0].text)
+	assert.equal(whoamiParsed.authenticated, true)
+	assert.equal(whoamiParsed.admin, false)
+	assert.equal(whoamiParsed.currentSession.admin, false)
+
+	const listResult = await executeTool('auth', { action: 'list' }, session1.token)
+	assert.equal(listResult.isError, true)
+	assert.match(listResult.content[0].text, /requires admin privileges/)
+
+	const getOtherResult = await executeTool('auth', { action: 'get', sessionId: session2.id }, session1.token)
+	assert.equal(getOtherResult.isError, true)
+	assert.match(getOtherResult.content[0].text, /requires admin privileges/)
+
+	const getSelfResult = await executeTool('auth', { action: 'get', sessionId: session1.id }, session1.token)
+	assert.equal(getSelfResult.isError, undefined)
+	const getSelfParsed = JSON.parse(getSelfResult.content[0].text)
+	assert.equal(getSelfParsed.session.id, session1.id)
+
+	const revokeOthersResult = await executeTool('auth', { action: 'revoke', allOthers: true }, session1.token)
+	assert.equal(revokeOthersResult.isError, true)
+	assert.match(revokeOthersResult.content[0].text, /requires admin privileges/)
+	assert.ok(db.sessions.get(session2.id))
+
+	const revokeOtherIdResult = await executeTool('auth', { action: 'revoke', sessionId: session2.id }, session1.token)
+	assert.equal(revokeOtherIdResult.isError, true)
+	assert.match(revokeOtherIdResult.content[0].text, /requires admin privileges/)
+	assert.ok(db.sessions.get(session2.id))
+
+	const revokeSelfResult = await executeTool('auth', { action: 'revoke', sessionId: session1.id }, session1.token)
+	assert.equal(revokeSelfResult.isError, undefined)
+	assert.equal(db.sessions.get(session1.id), null)
+	assert.ok(db.sessions.get(session2.id))
+})
+
+test('oauth consent flow with admin parameter', async () => {
+	const addr = server.address()
+	const challenge = 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM'
+
+	const consentAdmin = new URLSearchParams({
+		redirect_uri: 'https://chatgpt.com/callback',
+		state: 'client-state-admin',
+		code_challenge: challenge,
+		code_challenge_method: 'S256',
+		admin: 'true'
+	})
+	consentAdmin.append('services', 'drive')
+	const consentAdminRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize/consent`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/x-www-form-urlencoded' },
+		body: consentAdmin.toString(),
+		redirect: 'manual'
+	})
+	assert.equal(consentAdminRes.status, 302)
+	const locationAdmin = consentAdminRes.headers.get('location')
+	const stateTokenAdmin = new URL(locationAdmin).searchParams.get('state')
+	const oauthStateAdmin = db.oauthStates.consume(stateTokenAdmin)
+	assert.equal(oauthStateAdmin.admin, true)
+
+	const consentNoAdmin = new URLSearchParams({
+		redirect_uri: 'https://chatgpt.com/callback',
+		state: 'client-state-no-admin',
+		code_challenge: challenge,
+		code_challenge_method: 'S256'
+	})
+	consentNoAdmin.append('services', 'drive')
+	const consentNoAdminRes = await fetch(`http://127.0.0.1:${addr.port}/oauth/authorize/consent`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/x-www-form-urlencoded' },
+		body: consentNoAdmin.toString(),
+		redirect: 'manual'
+	})
+	assert.equal(consentNoAdminRes.status, 302)
+	const locationNoAdmin = consentNoAdminRes.headers.get('location')
+	const stateTokenNoAdmin = new URL(locationNoAdmin).searchParams.get('state')
+	const oauthStateNoAdmin = db.oauthStates.consume(stateTokenNoAdmin)
+	assert.equal(oauthStateNoAdmin.admin, false)
 })
 
 test('teardown server', (t, done) => {

@@ -46,11 +46,11 @@ Sign in at `<APP_URL>/oauth/authorize` in your browser to get your session token
 }
 ```
 
-### Authorization, Scope Selection & Granular Access Control
+### Authorization & Access Control
 
-* **Interactive Scope Selection**: Visiting `<APP_URL>/oauth/authorize` displays a consent screen where users select which Google services to enable. All services are **read-only by default**; checking the **Write** column grants write privileges for that service.  
-* **Enterprise Scopes**: Scopes marked with `*` (Google Keep) are restricted by Google to enterprise Workspace accounts and will fail if requested from a personal (`@gmail.com`) account.  
-* **Granular Access Control Policies (JSON)**: In the authorize screen, users can specify an optional JSON policy attached to the minted token to restrict sub-resources or operations beyond Google's coarse-grained OAuth scopes. Rules are evaluated sequentially from top to bottom (the first matching rule wins; if no rules match, the request is denied by default):
+* **Scope Selection**: Visiting `<APP_URL>/oauth/authorize` displays a consent screen to select which Google services to enable (unchecked by default). Checking **Write** grants write privileges.  
+* **Session Administration (`auth` tool)**: Optional toggle granting permission to list and revoke sessions. When disabled (default), the `auth` tool is omitted from `tools/list` and sessions are restricted to domain API access.  
+* **Granular Policy Engine (JSON)**: Optional JSON policy attached to the token to restrict sub-resources, URLs, and HTTP methods beyond Google OAuth scopes:
 
 ```json
 [
@@ -68,7 +68,7 @@ Sign in at `<APP_URL>/oauth/authorize` in your browser to get your session token
 
 ## Tools
 
-* **`auth`**: Inspect authentication status, list active sessions for current user, get session details, or revoke sessions.  
+* **`auth`**: Inspect authentication status, list active sessions for current user, get session details, or revoke sessions (available to admin sessions).  
   * `action`: `'whoami'` (or `'status'`, default), `'list'`, `'get'`, or `'revoke'`.  
   * `sessionId`: Optional session ID when action is `'get'` or `'revoke'`.  
   * `allOthers`: Optional boolean to revoke all other active sessions when action is `'revoke'`.  
