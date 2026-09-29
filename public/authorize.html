@@ -96,6 +96,27 @@
 				margin-bottom: 1.5rem;
 			}
 
+			.admin-section {
+				margin-bottom: 1.5rem;
+			}
+
+			.admin-label {
+				display: flex;
+				align-items: center;
+				gap: 8px;
+				font-size: 0.9rem;
+				font-weight: bold;
+				cursor: pointer;
+				color: #333;
+			}
+
+			.admin-hint {
+				font-size: 0.75rem;
+				color: #777;
+				margin-top: 0.25rem;
+				margin-left: 21px;
+			}
+
 			.policy-section {
 				margin-bottom: 1.5rem;
 			}
@@ -183,6 +204,13 @@
 ]'></textarea>
 					<div class="policy-hint">Optional. Define sequential URL path and method match rules (first matching rule wins). If left blank, full access granted by selected scopes is allowed.</div>
 				</details>
+				<div class="admin-section">
+					<label class="admin-label">
+						<input type="checkbox" name="admin" id="admin" value="true">
+						<span>Allow session administration (auth tool)</span>
+					</label>
+					<div class="admin-hint">Grant permission to inspect, list, and revoke other sessions. Leave unchecked for restricted or untrusted agents.</div>
+				</div>
 				<button type="submit">Sign in with Google</button>
 			</form>
 		</div>
@@ -234,6 +262,10 @@
 					if (policyEl) policyEl.value = policyVal
 					policyEl?.closest('details')?.setAttribute('open', '')
 				}
+				if (params.admin !== undefined) {
+					const adminEl = document.getElementById('admin')
+					if (adminEl) adminEl.checked = params.admin === 'true' || params.admin === '1' || params.admin === 'on'
+				}
 				let serviceIdsRead = null
 				if (params.services) {
 					serviceIdsRead = new Set()
@@ -251,7 +283,7 @@
 				}
 				const hiddenContainer = document.getElementById('hidden-inputs')
 				for (const [key, value] of Object.entries(params)) {
-					if (key === 'policy' || key === 'services' || key === 'write') continue
+					if (key === 'policy' || key === 'services' || key === 'write' || key === 'admin') continue
 					const input = document.createElement('input')
 					input.type = 'hidden'
 					input.name = key
@@ -271,7 +303,7 @@
 						spanName.appendChild(mark)
 					}
 					tdSvc.appendChild(spanName)
-					const isReadChecked = serviceIdsRead ? serviceIdsRead.has(s.id) : !s.enterprise
+					const isReadChecked = serviceIdsRead ? serviceIdsRead.has(s.id) : false
 					const isWriteChecked = isReadChecked && serviceIdsWrite.has(s.id)
 					const tdRead = document.createElement('td')
 					tdRead.className = 'col-check'
